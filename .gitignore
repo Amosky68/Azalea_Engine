@@ -1,0 +1,28 @@
+# Rust build output
+/target
+
+# Crate-local build artefacts
+*.profraw
+
+# Python bindings scratch (phase-0/1 experiments, not part of the crate)
+__pycache__/
+*.pyc
+_venv/
+
+# Pre-crate experiment artefacts: 290 MB of PyTorch checkpoints and
+# TensorBoard event files, unrelated to the Rust crate's sources.
+/models/
+/runs/
+
+# Phase 2.5 transport artefacts
+*.bundle
+
+# Compiled Python bindings (built by `cargo build --features python`)
+tools/*.pyd
+tools/*.so
+*.dylib
+
+# Lot G: the arena's artefacts and the duel logs. `tools/arena_duels.sh` rebuilds
+# the house bots, the arena and the bot, so nothing here is a source; the numbers
+# they produced are in the README.
+/artifacts/
