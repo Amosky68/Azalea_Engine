@@ -26,3 +26,10 @@ tools/*.so
 # the house bots, the arena and the bot, so nothing here is a source; the numbers
 # they produced are in the README.
 /artifacts/
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target

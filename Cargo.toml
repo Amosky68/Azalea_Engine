@@ -1,0 +1,14 @@
+[package]
+name = "Traversal"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = [
+    "crates/core",
+    "crates/engine",
+]
+resolver = "2"
+
+
+[dependencies]
