@@ -1,5 +1,6 @@
 
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Board {
     pub board : [i16; 100], // hauteur de chaque case du plateau
 }
@@ -24,7 +25,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn get_height(&self, x: i16, y: i16) -> i16 {
+    pub fn get_height_xy(&self, x: i16, y: i16) -> i16 {
         self.board[Board::coordinates_to_index(x, y) as usize]
     }
 
@@ -32,7 +33,7 @@ impl Board {
 
     // utils
 
-    pub fn get_neighbor_indices(index: i16) -> Vec<i16> {
+    pub fn get_neighbor_indices(&self, index: i16) -> Vec<i16> {
         let mut neighbors = Vec::new();
         let (x, y) = Board::index_to_coordinates(index);
 
@@ -52,7 +53,7 @@ impl Board {
         neighbors
     }
 
-    pub fn get_diagnonal_neighbor_indices(index: i16) -> Vec<i16> {
+    pub fn get_diagnonal_neighbor_indices(&self, index: i16) -> Vec<i16> {
         let mut neighbors = Vec::new();
         let (x, y) = Board::index_to_coordinates(index);
 
@@ -73,7 +74,7 @@ impl Board {
     }
 
     // renvoie la paire (index 2 de loins, index 1 de loins) des voisins à deux cases de distance
-    pub fn get_neighbors_two_steps_away(index: i16) -> Vec<(i16, i16)> {
+    pub fn get_neighbors_two_steps_away(&self, index: i16) -> Vec<(i16, i16)> {
         let mut neighbors = Vec::new();
         let (x, y) = Board::index_to_coordinates(index);
 
@@ -105,8 +106,8 @@ impl Board {
 
 
     #[inline]
-    pub fn is_neighboring_exit(index: i16, player: i16) -> bool {
-        let (x, y) = Board::index_to_coordinates(index);
+    pub fn is_neighboring_exit(&self, index: i16, player: i16) -> bool {
+        let (_, y) = Board::index_to_coordinates(index);
         match player {
             0 => y == 9,
             1 => y == 0,

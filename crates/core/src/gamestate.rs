@@ -1,5 +1,8 @@
+use crate::board::Board;
 
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pieces {
     None = 0,
 
@@ -46,7 +49,7 @@ pub struct GameState {
 
 impl GameState {
     pub fn new() -> GameState {
-        let gs = GameState {
+        let mut gs = GameState {
             board: Board::new_flat(),
             current_player: 0,
             ply_count: 0,
@@ -86,7 +89,7 @@ impl GameState {
     
     #[inline]
     pub fn is_occupied(&self, index: i16) -> bool {
-        self.board[index] != Pieces::None as i16
+        self.piece_maps[index as usize] != Pieces::None
     }
     
     #[inline]
@@ -108,27 +111,18 @@ impl GameState {
     pub fn get_winner(&self) -> Option<i16> {
         // 2 pièces sont sorties 
         if self.exited_pieces_count >= 2 {
-            if self.scores[0] > self.scores[1] {
-                return Some(0);
-            } else {
-                return Some(1);
-            }
+            if self.scores[0] > self.scores[1] { return Some(0); }
+            if self.scores[1] > self.scores[0] { return Some(1); }
         }
 
         // Sentinel est sortie d'abord
-        if self.scores[0] >= 3 {
-            return Some(0);
-        } else if self.scores[1] >= 3 {
-            return Some(1);
-        }
+        if      self.scores[0] >= 3 {return Some(0); } 
+        else if self.scores[1] >= 3 { return Some(1); }
 
         // 200 tours sont passés
         if self.ply_count >= 200 {
-            if self.current_score > 0 {
-                return Some(0);
-            } else if self.current_score < 0 {
-                return Some(1);
-            }
+            if self.scores[0] > self.scores[1] { return Some(0); }
+            if self.scores[1] > self.scores[0] { return Some(1); }
 
             return self.rows_tiebreak();
         }
