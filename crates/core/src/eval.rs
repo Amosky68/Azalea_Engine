@@ -1,5 +1,6 @@
-use azalea_core::{board::Board, gamestate::{GameState, Pieces}};
-
+use crate::gamestate::{GameState, Pieces};
+use crate::board::Board;
+use crate::moves::Move;
 
 
 
@@ -13,6 +14,7 @@ impl Evaluator {
     /// 
     /// - somme des pièces de chaque joueur
     /// - distance entre la pièce la plus avancée et l'objectif  X  force de la pièce
+    /// - le joueur qui a la sentinel la plus avancé à un bonus de
     /// - somme des distances entre toutes les pièces et l'objectif (indépendamment de la force de la pièce)
     /// - score de chaque joueur 
     /// - bonus si sentinel sur les 3 dernières lignes de l'objectif
@@ -38,35 +40,27 @@ impl Evaluator {
 
 
 
-    pub fn get_closest_piece_to_goal(state: &GameState, player: i32) -> (Pieces,i32) {
+    pub fn get_closest_piece_to_goal(state: &GameState, player: i32) -> (Pieces, i32) {
         let mut best = Pieces::None;
-        let mut best_distance = i32::MAX; 
+        let mut best_key = (i32::MAX, 0i32);
+        let mut best_distance = 0i32;
 
         for index in 0..100i16 {
+            if !state.is_occupied_by_ally(index, player as i16) {
+                continue;
+            }
             let piece = state.piece_maps[index as usize];
-            if piece == Pieces::None {
-                continue;
-            }
-            let player_piece = state.player_piece_map[index as usize];
-            if player_piece != player as i16 {
-                continue;
-            }
             let (_, y) = Board::index_to_coordinates(index);
-
-            // player 0 sort en rangée 9 ; player 1 sort en rangée 0
             let rows_to_go = if player == 0 { 9 - y } else { y };
-            let distance = rows_to_go;
+            let key = (rows_to_go as i32, -(piece.get_attack_force() as i32));
 
-            // moins de rangées d'abord ; à égalité d'avance, la force la plus haute gagne
-            let key = (rows_to_go, -piece.get_attack_force());
-
-            if key < (rows_to_go, -best.get_attack_force()) {
+            if key < best_key {
+                best_key = key;
                 best = piece;
-                best_distance = distance as i32;
+                best_distance = rows_to_go as i32;
             }
         }
-        return (best, best_distance); 
-
+        (best, best_distance)
     }
 
 
@@ -81,7 +75,7 @@ impl Evaluator {
 
         for index in 0..100 {
             let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None || state.player_piece_map[index as usize] == player as i16 {
+            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
                 score += piece.get_attack_force() as i32  *  10;
             }
         }
@@ -95,9 +89,9 @@ impl Evaluator {
         // Somme des distances entre toutes les pièces et l'objectif (indépendamment de la force de la pièce)
         for index in 0..100 {
             let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None || state.player_piece_map[index as usize] == player as i16 {
+            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
                 let distance = if player == 0 { 9 - Board::index_to_coordinates(index).1 } else { Board::index_to_coordinates(index).1 };
-                score += distance as i32  *  7;
+                score += (10 - distance) as i32  *  3;
             }
         }
 
@@ -109,10 +103,10 @@ impl Evaluator {
         // Bonus pour les pièces alliées qui se touchent
         for index in 0..100 {
             let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None || state.player_piece_map[index as usize] == player as i16 {
+            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
                 let neighbors = state.board.get_neighbor_indices(index);
                 for neighbor in neighbors {
-                    if state.player_piece_map[neighbor as usize] == player as i16 {
+                    if state.is_occupied_by_ally(neighbor, player as i16) {
                         score += 10; // Bonus pour chaque pièce alliée adjacente
                     }
                 }
@@ -130,21 +124,42 @@ impl Evaluator {
 
         if state.is_game_over() {
             let winner = state.get_winner();
-            if winner == Some(state.current_player) {
+            if winner == Some(0) {
                 return 1000000; // Gagné
-            } else if winner == Some(1 - state.current_player) {
+            } else if winner == Some(1) {
                 return -1000000; // Perdu
             }
             return 0; // Match nul
         }
 
 
-        let player_score = Evaluator::evaluate_from_player_side(state, state.current_player as i32);
-        let opponent_score = Evaluator::evaluate_from_player_side(state, (1 - state.current_player) as i32);
+        let player_score = Evaluator::evaluate_from_player_side(state, 0);
+        let opponent_score = Evaluator::evaluate_from_player_side(state, 1);
 
         return player_score - opponent_score;
     }
 
     
+
+    pub fn move_ordering_evaluation(mv: &Move, player: i16) -> i32 {
+        let mut score : i32 = 0;
+
+        if mv.exit {
+            score += 1000; // Priorité aux coups qui font sortir une pièce
+        }
+        if mv.captured {
+            score += 500; // Priorité aux coups qui captivent une pièce
+        }
+
+        let (_, y1) = Board::index_to_coordinates(mv.from);
+        let y2 = if mv.to < 0 { y1 } else { Board::index_to_coordinates(mv.to).1 }; // exit : to = -1
+        
+        let forward = if player == 0 { y2 > y1 } else { y2 < y1 };
+        if forward { score += 100; }
+
+        score += mv.piece.get_attack_force() as i32; // Priorité aux coups avec une force plus élevée
+        score
+    }
+
 
 }

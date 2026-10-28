@@ -9,4 +9,3 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 traversal-bot = { git = "https://github.com/Sylv-Lej/traversal-rust-sdk", tag = "v0.2.0" }
 azalea_core   = { path = "../core" }
-azalea_engine = { path = "../engine" }

@@ -4,5 +4,8 @@
 # test de validite sdk
 /traversal-rust-sdk
 
+# note perso
+commands.txt
+
 # Crate-local build artefacts
 *.profraw

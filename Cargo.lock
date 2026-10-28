@@ -11,7 +11,6 @@ name = "azalea_bot"
 version = "0.1.0"
 dependencies = [
  "azalea_core",
- "azalea_engine",
  "traversal-bot",
 ]
 
@@ -20,13 +19,6 @@ name = "azalea_core"
 version = "0.1.0"
 dependencies = [
  "serde_json",
-]
-
-[[package]]
-name = "azalea_engine"
-version = "0.1.0"
-dependencies = [
- "azalea_core",
 ]
 
 [[package]]

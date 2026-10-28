@@ -6,7 +6,6 @@ edition = "2024"
 [workspace]
 members = [
     "crates/core",
-    "crates/engine",
     "crates/bot",
 ]
 resolver = "2"
