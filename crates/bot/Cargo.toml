@@ -1,0 +1,12 @@
+[package]
+name = "azalea_bot"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+traversal-bot = { git = "https://github.com/Sylv-Lej/traversal-rust-sdk", tag = "v0.2.0" }
+azalea_core   = { path = "../core" }
+azalea_engine = { path = "../engine" }

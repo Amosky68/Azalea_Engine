@@ -1,4 +1,5 @@
 use crate::board::Board;
+use crate::moves::Move;
 
 
 
@@ -104,6 +105,7 @@ impl GameState {
 
 
 
+
     pub fn is_game_over(&self) -> bool {
         self.exited_pieces_count >= 2 || self.ply_count >= 200 || self.scores[0] >= 3 || self.scores[1] >= 3 
     }
@@ -129,7 +131,6 @@ impl GameState {
 
         return None;
     }
-
 
     pub fn rows_tiebreak(&self) -> Option<i16> {
         // best[player] = meilleure clé (rangées restantes, -force) du camp
@@ -163,4 +164,90 @@ impl GameState {
             _                          => None,    // égalité parfaite (ou les deux vides)
         }
     }
+
+
+
+    pub fn apply_move(&self, mv: &Move) -> GameState {
+        let mut next = GameState {
+            board: self.board,
+            current_player: self.current_player,
+            ply_count: self.ply_count,
+            scores: self.scores,
+            exited_pieces_count: self.exited_pieces_count,
+            piece_maps: self.piece_maps,
+            player_piece_map: self.player_piece_map,
+        };
+
+        if mv.is_pass() {
+            next.current_player = 1 - next.current_player;
+            next.ply_count += 1;
+            return next;
+        }
+
+
+        let piece = mv.piece;
+        let player = self.player_piece_map[mv.from as usize];
+
+        if mv.exit {
+            next.piece_maps[mv.from as usize] = Pieces::None;
+            next.player_piece_map[mv.from as usize] = 0;
+
+            next.exited_pieces_count += 1;
+            next.scores[player as usize] += piece.get_attack_force();
+        } else {
+            next.piece_maps[mv.to as usize] = piece;
+            next.player_piece_map[mv.to as usize] = player;
+
+            next.piece_maps[mv.from as usize] = Pieces::None;
+            next.player_piece_map[mv.from as usize] = 0;
+        }
+
+        // Changer de joueur
+        next.current_player = 1 - next.current_player;
+        next.ply_count += 1;
+        next
+    }
+
+    pub fn undo_move(&self, mv: &Move) -> GameState {
+        let mut next = GameState {
+            board: self.board,
+            current_player: self.current_player,
+            ply_count: self.ply_count,
+            scores: self.scores,
+            exited_pieces_count: self.exited_pieces_count,
+            piece_maps: self.piece_maps,
+            player_piece_map: self.player_piece_map,
+        };
+
+        if mv.is_pass() {
+            next.current_player = 1 - self.current_player;
+            next.ply_count -= 1;
+            return next;
+        }
+
+        let piece = mv.piece;
+        let player = self.player_piece_map[mv.from as usize];
+
+        // deplacements 
+        next.piece_maps[mv.from as usize] = piece;
+        next.player_piece_map[mv.from as usize] = player;
+
+        if mv.captured {
+            next.piece_maps[mv.to as usize] = mv.captured_piece;
+            next.player_piece_map[mv.to as usize] = 1 - player;
+        }
+        else if mv.exit {
+            next.exited_pieces_count -= 1;
+            next.scores[player as usize] -= piece.get_attack_force();
+        }
+        else {
+            next.piece_maps[mv.to as usize] = Pieces::None;
+            next.player_piece_map[mv.to as usize] = 0;
+        }
+        
+        next.current_player = 1 - next.current_player;
+        next.ply_count -= 1;
+        next
+    }
+
 }

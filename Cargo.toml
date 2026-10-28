@@ -7,8 +7,11 @@ edition = "2024"
 members = [
     "crates/core",
     "crates/engine",
+    "crates/bot",
 ]
 resolver = "2"
 
 
 [dependencies]
+
+

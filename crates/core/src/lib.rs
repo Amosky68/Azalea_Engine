@@ -1,7 +1,6 @@
-mod board;
-mod gamestate;
-mod moves;
-
+pub mod board;
+pub mod gamestate;
+pub mod moves;
 
 
 
