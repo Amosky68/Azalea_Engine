@@ -10,7 +10,7 @@ fn choose(turn: &Turn) -> usize {
     let gs = convert::to_gamestate(&turn.state);
 
     // La recherche choisit un coup azalea...
-    let mv = Search.get_best_move(&gs, turn.seed);
+    let mv = Search.get_best_move(&gs);
 
     // ...qu'on traduit en indice de la liste serveur (rendez-vous de service).
     let key = key_of_azalea_move(&mv);

@@ -18,6 +18,17 @@ pub struct Move {
 }
 
 impl Move {
+    pub fn pass_mv() -> Move {
+        Move {
+            from: -1,
+            to: -1,
+            piece: Pieces::None,
+            captured_piece: Pieces::None,
+            captured: false,
+            exit: false,
+        }
+    }
+
     pub fn is_pass(&self) -> bool {
         self.from == -1 && self.to == -1
     }
