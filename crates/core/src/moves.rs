@@ -4,7 +4,7 @@ use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Reverse;
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Move {
     pub from: i16, // indice de la case de départ 
     pub to: i16,   // indice de la case d'arrivée

@@ -23,6 +23,24 @@ impl Evaluator {
 
 
 
+    pub fn sentinel_distance_to_exit(state: &GameState, player: i32) -> i32 {
+        let mut min_distance = i16::MAX;
+        for index in 0..100 {
+            let piece = state.piece_maps[index as usize];
+            if piece == Pieces::Sentinel && state.player_piece_map[index as usize] == player as i16 {
+                let (_, y) = Board::index_to_coordinates(index);
+                let distance = if player == 0 { 9 - y } else { y };
+                if distance < min_distance {
+                    min_distance = distance;
+                }
+            }
+        }
+        if min_distance == i16::MAX {
+            return 10; // Aucun sentinel trouvé, retourner une distance maximale
+        }
+        min_distance as i32
+    }
+
 
     pub fn has_sentinel_in_goal_area(state: &GameState, player: i32) -> bool {
         let goal_rows = if player == 0 { 7..=9 } else { 0..=2 };
@@ -95,9 +113,13 @@ impl Evaluator {
             }
         }
 
+        // distance de la sentinel la plus avancée à l'objectif
+        let sentinel_distance = Evaluator::sentinel_distance_to_exit(state, player);
+        score += (10 - sentinel_distance) * 200; 
+
         // Bonus si sentinel sur les 3 dernières lignes de l'objectif
         if Evaluator::has_sentinel_in_goal_area(state, player) {
-            score += 200;
+            score += 300;
         }
 
         // Bonus pour les pièces alliées qui se touchent
@@ -141,8 +163,12 @@ impl Evaluator {
 
     
 
-    pub fn move_ordering_evaluation(mv: &Move, player: i16) -> i32 {
+    pub fn move_ordering_evaluation(mv: &Move,tt_move: Move, player: i16) -> i32 {
         let mut score : i32 = 0;
+
+        if mv.from == tt_move.from && mv.to == tt_move.to {
+            score += 10000; // Priorité au coup du transposition table
+        }
 
         if mv.exit {
             score += 1000; // Priorité aux coups qui font sortir une pièce

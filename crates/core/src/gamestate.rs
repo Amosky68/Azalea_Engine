@@ -3,7 +3,7 @@ use crate::moves::Move;
 
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pieces {
     None = 0,
 

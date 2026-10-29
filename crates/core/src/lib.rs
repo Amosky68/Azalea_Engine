@@ -3,6 +3,7 @@ pub mod gamestate;
 pub mod moves;
 pub mod search;
 pub mod eval;
+pub mod zobrist;
 
 
 
