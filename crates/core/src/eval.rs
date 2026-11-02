@@ -1,6 +1,13 @@
 use crate::gamestate::{GameState, Pieces};
+use crate::BitboardsUtils::Utils;
 use crate::board::Board;
 use crate::moves::Move;
+
+
+// meilleur valeur pour le moment : 180
+const RACE_WIN: i32 = 180; // Bonus pour le joueur qui a la sentinel la plus avancée
+
+
 
 
 
@@ -8,7 +15,6 @@ pub struct Evaluator;
 
 
 impl Evaluator {
-
 
     /// Choses évaluées 
     /// 
@@ -22,143 +28,155 @@ impl Evaluator {
     /// 
 
 
+    /// Calcule la distance minimale d'un sentinel à la sortie pour un joueur donné.
+    pub fn sentinel_distance_to_exit(state: &GameState, utils: &Utils, player: i32) -> i32 {
 
-    pub fn sentinel_distance_to_exit(state: &GameState, player: i32) -> i32 {
-        let mut min_distance = i16::MAX;
-        for index in 0..100 {
-            let piece = state.piece_maps[index as usize];
-            if piece == Pieces::Sentinel && state.player_piece_map[index as usize] == player as i16 {
-                let (_, y) = Board::index_to_coordinates(index);
-                let distance = if player == 0 { 9 - y } else { y };
-                if distance < min_distance {
-                    min_distance = distance;
+        let map = if player == 0 { state.sentinel_p1 } else { state.sentinel_p2 };
+        if map == 0 {
+            return 10; 
+        }
+        
+        if player == 0 {
+            for row in (0..10).rev() {
+                let row_mask = utils.get_row_mask(row);
+                if map & row_mask != 0 {
+                    return 9 - row as i32;
+                }
+            }
+        } else {
+            for row in 0..10 {
+                let row_mask = utils.get_row_mask(row);
+                if map & row_mask != 0 {
+                    return row as i32;
                 }
             }
         }
-        if min_distance == i16::MAX {
-            return 10; // Aucun sentinel trouvé, retourner une distance maximale
-        }
-        min_distance as i32
+        return 10;
     }
 
 
-    pub fn has_sentinel_in_goal_area(state: &GameState, player: i32) -> bool {
-        let goal_rows = if player == 0 { 7..=9 } else { 0..=2 };
-        for index in 0..100 {
-            let piece = state.piece_maps[index as usize];
-            if piece == Pieces::Sentinel && state.player_piece_map[index as usize] == player as i16 {
-                let (_, y) = Board::index_to_coordinates(index);
-                if goal_rows.contains(&y) {
-                    return true;
+    pub fn get_closest_piece_to_goal(state: &GameState, utils : &Utils, player: i32) -> (Pieces, i32) {
+        let (ally_explorer, ally_vanguard, ally_sentinel) = state.get_player_pieces_map(player);
+        let ally_map = ally_explorer | ally_vanguard | ally_sentinel;
+        
+        if player == 0 {
+            for row in (0..10).rev() {
+                let row_mask = utils.get_row_mask(row);
+                let pieces_in_row = ally_map & row_mask;
+                if pieces_in_row != 0 {
+                    if (ally_sentinel & pieces_in_row) != 0 {
+                        return (Pieces::Sentinel, 9 - row as i32);
+                    } else if (ally_vanguard & pieces_in_row) != 0 {
+                        return (Pieces::Vanguard, 9 - row as i32);
+                    } else if (ally_explorer & pieces_in_row) != 0 {
+                        return (Pieces::Explorer, 9 - row as i32);
+                    }
                 }
             }
-        }
-        false
-    }
-
-
-
-    pub fn get_closest_piece_to_goal(state: &GameState, player: i32) -> (Pieces, i32) {
-        let mut best = Pieces::None;
-        let mut best_key = (i32::MAX, 0i32);
-        let mut best_distance = 0i32;
-
-        for index in 0..100i16 {
-            if !state.is_occupied_by_ally(index, player as i16) {
-                continue;
-            }
-            let piece = state.piece_maps[index as usize];
-            let (_, y) = Board::index_to_coordinates(index);
-            let rows_to_go = if player == 0 { 9 - y } else { y };
-            let key = (rows_to_go as i32, -(piece.get_attack_force() as i32));
-
-            if key < best_key {
-                best_key = key;
-                best = piece;
-                best_distance = rows_to_go as i32;
-            }
-        }
-        (best, best_distance)
-    }
-
-
-
-    pub fn evaluate_from_player_side(state: &GameState, player: i32) -> i32 {
-        let mut score : i32 = 0;
-
-
-        // score de chaque joueur 
-        score += (state.scores[player as usize] as i32) * 1000;
-
-
-        for index in 0..100 {
-            let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
-                score += piece.get_attack_force() as i32  *  10;
-            }
-        }
-
-        // Distance entre la pièce la plus avancée et l'objectif X force de la pièce
-        let (closest_piece, distance) = Evaluator::get_closest_piece_to_goal(state, player);
-        if closest_piece != Pieces::None {
-            score += (10 - distance) * closest_piece.get_attack_force() as i32 * 40;
-        }
-
-        // Somme des distances entre toutes les pièces et l'objectif (indépendamment de la force de la pièce)
-        for index in 0..100 {
-            let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
-                let distance = if player == 0 { 9 - Board::index_to_coordinates(index).1 } else { Board::index_to_coordinates(index).1 };
-                score += (10 - distance) as i32  *  3;
-            }
-        }
-
-        // distance de la sentinel la plus avancée à l'objectif
-        let sentinel_distance = Evaluator::sentinel_distance_to_exit(state, player);
-        score += (10 - sentinel_distance) * 200; 
-
-        // Bonus si sentinel sur les 3 dernières lignes de l'objectif
-        if Evaluator::has_sentinel_in_goal_area(state, player) {
-            score += 300;
-        }
-
-        // Bonus pour les pièces alliées qui se touchent
-        for index in 0..100 {
-            let piece = state.piece_maps[index as usize];
-            if piece != Pieces::None && state.player_piece_map[index as usize] == player as i16 {
-                let neighbors = state.board.get_neighbor_indices(index);
-                for neighbor in neighbors {
-                    if state.is_occupied_by_ally(neighbor, player as i16) {
-                        score += 10; // Bonus pour chaque pièce alliée adjacente
+        } else {
+            for row in 0..10 {
+                let row_mask = utils.get_row_mask(row);
+                let pieces_in_row = ally_map & row_mask;
+                if pieces_in_row != 0 {
+                    if (ally_sentinel & pieces_in_row) != 0 {
+                        return (Pieces::Sentinel, row as i32);
+                    } else if (ally_vanguard & pieces_in_row) != 0 {
+                        return (Pieces::Vanguard, row as i32);
+                    } else if (ally_explorer & pieces_in_row) != 0 {
+                        return (Pieces::Explorer, row as i32);
                     }
                 }
             }
         }
+        return (Pieces::None, -1);
+    }
+    
+
+    pub fn evaluate_from_player_side(state: &GameState, utils : &Utils, player: i32) -> i32 {
+        let (ally_explorer, ally_vanguard, ally_sentinel) = state.get_player_pieces_map(player);
+        let ally_map = ally_explorer | ally_vanguard | ally_sentinel;
+        
+        let mut score : i32 = 0;
+
+
+        // score de chaque joueur 
+        let my_score = if player == 0 { state.score_p1 } else { state.score_p2 };
+        score += my_score * 1000;
+
+
+        score += ((ally_explorer.count_ones() + ally_vanguard.count_ones() * 2 + ally_sentinel.count_ones() * 3) as i32) * 10;
+
+
+        // Distance entre la pièce la plus avancée et l'objectif X force de la pièce
+        let (closest_piece, distance) = Evaluator::get_closest_piece_to_goal(state, utils, player);
+        if closest_piece != Pieces::None {
+            score += (10 - distance) * closest_piece.get_attack_force() as i32 * 40;
+        }
+
+
+        // Somme des distances entre toutes les pièces et l'objectif (indépendamment de la force de la pièce)
+        for row in 0..10 {
+            let row_mask = utils.get_row_mask(row);
+            let ally_pieces_in_row = ally_map & row_mask;
+
+            if ally_pieces_in_row != 0 {
+                let ally_piece_count = ally_pieces_in_row.count_ones() as i32;
+                let rows_to_go = if player == 0 { 9 - row as i32 } else { row as i32 };
+                score += (10 - rows_to_go) * ally_piece_count * 3; 
+            }
+        }
+
+
+        // distance de la sentinel la plus avancée à l'objectif
+        let sentinel_distance = Evaluator::sentinel_distance_to_exit(state, utils,player);
+        score += (10 - sentinel_distance) * 200; 
+
+        // Bonus si sentinel sur les 3 dernières lignes de l'objectif
+        let goal_area = if player == 0 { Utils::P1_GOAL_AREA_MASK } else { Utils::P2_GOAL_AREA_MASK };
+        if goal_area & ally_sentinel != 0 {
+            score += 300;
+        }
+
+
+        let neighboring_map = (ally_map & Utils::TOP_SHIFT_MASK) << 10 | (ally_map & Utils::BOTTOM_SHIFT_MASK) >> 10 | (ally_map & Utils::LEFT_SHIFT_MASK) << 1 | (ally_map & Utils::RIGHT_SHIFT_MASK) >> 1;
+        let adjacent_allys = ally_map & neighboring_map;
+        score += adjacent_allys.count_ones() as i32 * 10;
+
 
         score
     }
 
 
 
-    pub fn evaluate(state: &GameState) -> i32 {
+    pub fn evaluate(state: &GameState, utils : &Utils) -> i32 {
         // Implémentez votre fonction d'évaluation ici
         // Valeur d'évaluation fictive
+        
 
         if state.is_game_over() {
             let winner = state.get_winner();
             if winner == Some(0) {
-                return 1000000; // Gagné
+                return 1_000_000; // Gagné
             } else if winner == Some(1) {
-                return -1000000; // Perdu
+                return -1_000_000; // Perdu
             }
             return 0; // Match nul
         }
 
 
-        let player_score = Evaluator::evaluate_from_player_side(state, 0);
-        let opponent_score = Evaluator::evaluate_from_player_side(state, 1);
+        let player_score = Evaluator::evaluate_from_player_side(state, utils, 0);
+        let opponent_score = Evaluator::evaluate_from_player_side(state, utils, 1);
 
-        return player_score - opponent_score;
+        let mut race_bonus = 0;
+        if state.exited_piece_count == 0 {          
+            let a = utils.get_best_sentinel_plies(state, 0);
+            let b = utils.get_best_sentinel_plies(state, 1);
+
+            let p0_wins_race = if state.current_player == 0 { a <= b } else { a < b };
+            race_bonus = if p0_wins_race { RACE_WIN } else { -RACE_WIN };
+        }
+
+        return player_score - opponent_score + race_bonus;
     }
 
     

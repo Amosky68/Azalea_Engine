@@ -32,7 +32,6 @@ impl Board {
 
 
     // utils
-
     pub fn get_neighbor_indices(&self, index: i16) -> Vec<i16> {
         let mut neighbors = Vec::new();
         let (x, y) = Board::index_to_coordinates(index);
@@ -53,6 +52,7 @@ impl Board {
         neighbors
     }
 
+    
     pub fn get_diagnonal_neighbor_indices(&self, index: i16) -> Vec<i16> {
         let mut neighbors = Vec::new();
         let (x, y) = Board::index_to_coordinates(index);

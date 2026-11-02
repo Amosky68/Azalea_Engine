@@ -1,7 +1,7 @@
-use crate::gamestate::{GameState, Pieces};
+use crate::gamestate::{GameState};
 use crate::moves::Move;
 
-const TABLE_BITS: usize = 18;                    // 2^18 = 262 144 entrées ≈ 8 Mo
+const TABLE_BITS: usize = 19;                    // 2^19 = 524 288 entrées ≈ 16 Mo
 const TABLE_SIZE: usize = 1 << TABLE_BITS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,24 +14,31 @@ pub struct ZobristEntry {
     pub score: i32,
     pub best_move: Move,
     pub bound: Bounds,
+    pub age: u8,
 }
 
 pub struct Zobrist {
     // Clés aléatoires DÉTERMINISTES : xorshift seedé fixe — pas de hasard OS
-    piece_keys: [[u64; 8]; 100],   // [case][pièce + camp*4]  (codes 1..7)
+    piece_keys: [[u64; 6]; 100],   // [case][pièce + camp*3]  (codes 1..7)
     side_key: u64,
     score_keys: [[u64; 8]; 2],      // [camp][score 0..=7]
     finished_keys: [u64; 3],        // exited_pieces_count 0..=2
     table: Vec<Option<ZobristEntry>>,
+    age: u8,
 }
 
 impl Zobrist {
+
+
+
     pub fn new() -> Zobrist {
         let mut s = 0x9E3779B97F4A7C15u64;
         let mut next = move || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
 
-        let mut piece_keys = [[0u64; 8]; 100];
+        let mut piece_keys = [[0u64; 6]; 100];
         for sq in piece_keys.iter_mut() { for k in sq.iter_mut() { *k = next(); } }
+
+
         let score_keys = [[next(), next(), next(), next(), next(), next(), next(), next()],
                           [next(), next(), next(), next(), next(), next(), next(), next()]];
         let finished_keys = [next(), next(), next()];
@@ -42,23 +49,44 @@ impl Zobrist {
             score_keys,
             finished_keys,
             table: vec![None; TABLE_SIZE],
+            age: 0,
         }
     }
+
+
+    pub fn new_search(&mut self) { self.age = self.age.wrapping_add(1); }
+
+
+    pub fn clear(&mut self) {
+        for e in self.table.iter_mut() { *e = None; }
+        self.age = 0;
+    }
+
 
     /// Clé de position : PIEÈCES + camp au trait + scores + sorties.
     /// PAS de ply_count : même position = même clé, sinon le TT ne sert à rien.
     pub fn get_hash(&self, state: &GameState) -> u64 {
         let mut h = 0u64;
-        for i in 0..100 {
-            let piece = state.piece_maps[i];
-            if piece == Pieces::None { continue; }
-            let code = piece as usize + state.player_piece_map[i] as usize * 4; // 1..7
-            h ^= self.piece_keys[i][code];
-        }
+
+        let mut hash_bitboard = |mut bb: u128, piece_type_index: usize| {
+            while bb != 0 {
+                let sq = bb.trailing_zeros() as usize;
+                h ^= self.piece_keys[sq][piece_type_index];
+                bb &= bb - 1;
+            }
+        };
+        
+        hash_bitboard(state.explorer_p1, 0);
+        hash_bitboard(state.vanguard_p1, 1);
+        hash_bitboard(state.sentinel_p1, 2);
+        hash_bitboard(state.explorer_p2, 3);
+        hash_bitboard(state.vanguard_p2, 4);
+        hash_bitboard(state.sentinel_p2, 5);
+
         if state.current_player == 1 { h ^= self.side_key; }
-        h ^= self.score_keys[0][(state.scores[0] as usize).min(7)];
-        h ^= self.score_keys[1][(state.scores[1] as usize).min(7)];
-        h ^= self.finished_keys[(state.exited_pieces_count as usize).min(2)];
+        h ^= self.score_keys[0][(state.score_p1 as usize).min(7)];
+        h ^= self.score_keys[1][(state.score_p2 as usize).min(7)];
+        h ^= self.finished_keys[(state.exited_piece_count as usize).min(2)];
         h
     }
 
@@ -71,9 +99,14 @@ impl Zobrist {
     }
 
     /// Remplacement simple (toujours) : suffisant à cette taille.
-    pub fn add(&mut self, state: &GameState, depth: i32, score: i32, mv: Move, bound: Bounds) {
-        let key = self.get_hash(state);
-        self.table[(key as usize) & (TABLE_SIZE - 1)] =
-            Some(ZobristEntry { key, depth, score, best_move: mv, bound });
+    pub fn add_key(&mut self, key: u64, depth: i32, score: i32, mv: Move, bound: Bounds) {
+        let idx = (key as usize) & (TABLE_SIZE - 1);
+        let replace = match &self.table[idx] {
+            None => true,
+            Some(e) => e.age != self.age || depth >= e.depth, // vieux = écrasable ; sinon on garde le plus profond
+        };
+        if replace {
+            self.table[idx] = Some(ZobristEntry { key, depth, score, best_move: mv, bound, age: self.age });
+        }
     }
 }

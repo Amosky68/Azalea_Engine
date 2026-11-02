@@ -2,6 +2,8 @@ use azalea_bot::convert::{key_of_azalea_move, key_of_server_move, to_gamestate};
 use azalea_core::moves::MoveGenerator;
 use std::collections::BTreeSet;
 use traversal_bot::core::{apply_move, legal_moves, new_game};
+use azalea_core::BitboardsUtils::Utils;
+use azalea_core::board::Board;
 
 
 struct Rng(u64); // xorshift64, pas de crate rand
@@ -18,12 +20,19 @@ fn random_heights(rng: &mut Rng) -> [u8; 100] {
     let mut cur = 3i16;
     for x in 0..10 {
         h[x] = cur as u8;
-        cur = (cur + rng.below(3) as i16 - 1).clamp(0, 6);
+        cur = (cur + rng.below(5) as i16 - 2).clamp(0, 6); // pas de ±2 max
     }
     for y in 1..10 {
         for x in 0..10 {
-            let prev = h[(y - 1) * 10 + x] as i16;
-            h[y * 10 + x] = (prev + rng.below(3) as i16 - 1).clamp(0, 6) as u8;
+            let top = h[(y - 1) * 10 + x] as i16;
+            // candidat à ±2 de la case du dessus...
+            let mut cand = top + rng.below(5) as i16 - 2;
+            // ...resserré à ±2 du voisin de gauche pour l'arête horizontale
+            if x > 0 {
+                let left = h[y * 10 + x - 1] as i16;
+                cand = cand.clamp(left - 2, left + 2);
+            }
+            h[y * 10 + x] = cand.clamp(0, 6) as u8;
         }
     }
     h
@@ -33,14 +42,18 @@ fn random_heights(rng: &mut Rng) -> [u8; 100] {
 fn equivalence_movegen_sur_parties_autojouees() {
     let mut rng = Rng(0x9E3779B97F4A7C15);
     for game in 0..200 {
-        let mut s = new_game(random_heights(&mut rng));
+        let heights = random_heights(&mut rng);
+        let board = Board { board: heights.map(|h| h as i16) };
+        let utils = Utils::new(board);
+
+        let mut s = new_game(heights);
         while !s.over && s.ply < 200 {
             let moves = legal_moves(&s);
             let gs = to_gamestate(&s);
 
             let expected: BTreeSet<_> = moves.iter()
                 .map(|m| key_of_server_move(&s, m)).collect();
-            let got: BTreeSet<_> = MoveGenerator::generate_all_moves(&gs)
+            let got: BTreeSet<_> = MoveGenerator::generate_all_moves(&gs, &utils, &board)
                 .iter().map(key_of_azalea_move).collect();
 
             assert_eq!(got, expected,

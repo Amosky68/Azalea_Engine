@@ -4,7 +4,7 @@ pub mod moves;
 pub mod search;
 pub mod eval;
 pub mod zobrist;
-
+pub mod BitboardsUtils;
 
 
 pub fn add(left: u64, right: u64) -> u64 {

@@ -1,7 +1,9 @@
 use crate::gamestate::GameState;
 use crate::gamestate::Pieces;
-use std::collections::{BinaryHeap, HashMap};
-use std::cmp::Reverse;
+use crate::BitboardsUtils::Utils;
+use crate::board::Board;
+
+
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,250 +38,220 @@ impl Move {
 
 
 
+pub struct MoveGenerator {
 
-pub struct MoveGenerator;
+}
 
 impl MoveGenerator {
 
-    // true si une pièce allié attaquer une pièce ennemie
-    pub fn can_piece_attack(gs: &GameState, piece: Pieces, from : i16, to : i16, move_cost: i16) -> bool {
-    
+
+    pub fn can_piece_attack(gs: &GameState, piece: Pieces, from : i16, to : i16, vanguard_attack_bonus: bool, utils : &Utils, board : &Board) -> bool {
         let mut piece_allied_force = piece.get_attack_force();
 
-        piece_allied_force += if gs.board.get_height(from) > gs.board.get_height(to) { 1 } else { 0 }; 
-        piece_allied_force += if gs.board.get_height(from) < gs.board.get_height(to) { -1 } else { 0 }; 
+        piece_allied_force += if board.get_height(from) > board.get_height(to) { 1 } else { 0 }; 
+        piece_allied_force += if board.get_height(from) < board.get_height(to) { -1 } else { 0 }; 
 
-        for neighbor in gs.board.get_neighbor_indices(to) {
-            if gs.is_occupied_by_ally(neighbor, gs.current_player) && from != neighbor {
-                piece_allied_force += gs.get_piece_at(neighbor).get_attack_force();
-            }
-        }
+        let (ally_explorer, ally_vanguard, ally_sentinel) = gs.get_ally_pieces_masks();
+        let (_, enemy_mask) = gs.get_ally_ennemy_masks();
+
+        let neighbor_map = utils.get_neighbor_mask(to) & (!(1_u128 << from)); // mask des voisins de la case cible, en excluant la case de départ
+        piece_allied_force += (neighbor_map & ally_explorer).count_ones() as i32;
+        piece_allied_force += (neighbor_map & ally_vanguard).count_ones() as i32 * 2;
+        piece_allied_force += (neighbor_map & ally_sentinel).count_ones() as i32 * 3;
+
 
         // charge de l'avant garde : si l'attaquante est une Avant-garde et si le coût total de l'attaque est EXACTEMENT 4, attaque += 1.
-        if piece == Pieces::Vanguard && move_cost == 4 {
+        if vanguard_attack_bonus {
             piece_allied_force += 1;
         }
 
         let mut piece_enemy_force = gs.get_piece_at(to).get_attack_force();
 
-        for neighbor in gs.board.get_neighbor_indices(to) {
-            if gs.is_occupied_by_enemy(neighbor, gs.current_player) {
-                piece_enemy_force += 1;
-            }
-        }
+        piece_enemy_force += (utils.get_neighbor_mask(to) & enemy_mask).count_ones() as i32; // mask des voisins de la case cible, en excluant la case de départ
 
         piece_allied_force >= piece_enemy_force
     }
 
+    /// renvoie (free moves, attack moves)
+    pub fn get_explorer_special_moves(gs: &GameState, index: i16, reached_squares: u128, utils : &Utils, board : &Board) -> (u128, u128) {
+        let (ally_mask, ennemy_mask) = gs.get_ally_ennemy_masks();
+        let all_occupied = ally_mask | ennemy_mask;
 
-    pub fn get_explorer_special_moves(gs: &GameState, index: i16, reached_squares: &std::collections::HashSet<i16>) -> Vec<Move> {
-        let mut moves = Vec::new();
-       
-        // diagonal moves
-        for neighbor in gs.board.get_diagnonal_neighbor_indices(index) {
-            if !reached_squares.contains(&neighbor) {
-                if gs.is_occupied_by_ally(neighbor, gs.current_player) {
-                    continue;
-                }
 
-                if gs.is_occupied_by_enemy(neighbor, gs.current_player) {
-                    if MoveGenerator::can_piece_attack(gs, Pieces::Explorer, index, neighbor, 0) {
-                        moves.push(Move {
-                            from: index,
-                            to: neighbor,
-                            piece: Pieces::Explorer,
-                            captured_piece: gs.get_piece_at(neighbor),
-                            captured: true,
-                            exit: false,
-                        });
-                    }
-                    continue;
-                }
-                moves.push(Move {
-                    from: index,
-                    to: neighbor,
-                    piece: Pieces::Explorer,
-                    captured_piece: Pieces::None,
-                    captured: false,
-                    exit: false,
-                });
+        let diag_neighbor_mask = utils.get_diagonal_neighbor_mask(index) & !reached_squares & !ally_mask;
+        let mut diag_ennemy_occupied = diag_neighbor_mask & ennemy_mask;
+        let mut free_moves = diag_neighbor_mask & !ennemy_mask; // cases forcément libres 
+        let mut attack_moves = 0_u128;
+
+
+        while diag_ennemy_occupied != 0 {
+            let ennemy_index = diag_ennemy_occupied.trailing_zeros();
+            diag_ennemy_occupied ^= 1_u128 << ennemy_index; // retire l'ennemi trouvé du masque
+
+            if MoveGenerator::can_piece_attack(gs, Pieces::Explorer, index, ennemy_index as i16, false, utils, board) {
+                attack_moves |= 1_u128 << ennemy_index;
             }
         }
 
+        let mut potential_leaps = utils.get_two_step_mask(index) & !reached_squares & !ally_mask;
 
-        // leap moves
-        for (neighbor2, between) in gs.board.get_neighbors_two_steps_away(index) {
-            if !reached_squares.contains(&neighbor2) && !gs.is_occupied(between) {
-                if gs.is_occupied_by_ally(neighbor2, gs.current_player) {
-                    continue;
-                }
 
-                if gs.is_occupied_by_enemy(neighbor2, gs.current_player) {
-                    if MoveGenerator::can_piece_attack(gs, Pieces::Explorer, index, neighbor2, 0) {
-                        moves.push(Move {
-                            from: index,
-                            to: neighbor2,
-                            piece: Pieces::Explorer,
-                            captured_piece: gs.get_piece_at(neighbor2),
-                            captured: true,
-                            exit: false,
-                        });
+        while potential_leaps != 0 {
+            let dest_index = potential_leaps.trailing_zeros();
+            potential_leaps ^= 1_u128 << dest_index; // Dépiler le bit traité
+
+
+            let between_index = (index as u32 + dest_index) / 2;
+            let between_mask = 1_u128 << between_index;
+
+            // La case intermédiaire doit être vide
+            if (all_occupied & between_mask) == 0 {
+                let dest_mask = 1_u128 << dest_index;
+
+                if (ennemy_mask & dest_mask) != 0 { // occupation ennemie
+                    if MoveGenerator::can_piece_attack(gs, Pieces::Explorer, index, dest_index as i16, false, utils, board) {
+                        attack_moves |= dest_mask;
                     }
-                    continue;
+                } else {
+                    free_moves |= dest_mask;
                 }
-
-                moves.push(Move {
-                    from: index,
-                    to: neighbor2,
-                    piece: Pieces::Explorer,
-                    captured_piece: Pieces::None,
-                    captured: false,
-                    exit: false,
-                });
             }
         }
-
-
-
-        moves
+        
+        (free_moves, attack_moves)
     }
+
 
     
     /// Returns a list of all squares that can be reached by the given piece.
-    pub fn get_piece_moves(gs: &GameState, index: i16, piece: Pieces) -> Vec<Move> {
-        let mut moves = Vec::new();
-        let movement_budget = piece.get_movement_budget();
-        let mut can_exit = false;
+    pub fn get_piece_moves(gs: &GameState, index: i16, piece: Pieces, utils : &Utils, board : &Board) -> (u128, u128, bool) {
+        // Bitboard bfs 
 
-        let mut heap = BinaryHeap::new();
-        let mut min_cost: HashMap<i16, u32> = HashMap::new();
+        let (ally_mask, ennemy_mask) = gs.get_ally_ennemy_masks();
+        let piece_budget = piece.get_movement_budget();
 
-        min_cost.insert(index, 0);
-        heap.push(Reverse((0, index)));
+        let mut budget = piece_budget;
+        let mut reach = [0u128; 6];
+        reach[budget as usize] = 1_u128 << index;
+
+        let empty_mask = !(ally_mask | ennemy_mask) ;
+        let mut mask = reach[budget as usize];
+
+        // attaques ennemis 
+        let mut sucessfull_attaks = 0_u128; // attaques qui réussissent
+        let mut attempted_attaks  = 0_u128; // attaques que l'on a tenté (pour ne pas répéter une attaque avec un autre cost)
 
 
-        while let Some(Reverse((current_cost, current_index))) = heap.pop() {
-            if current_cost > *min_cost.get(&current_index).unwrap_or(&u32::MAX) {
-                continue;
+        while  budget > 0 {
+            if budget > 0 {
+                let next_step = (mask & utils.get_bfs_weight(0, 0)) << 10 // up
+                    | (mask & utils.get_bfs_weight(0, 1)) << 1   // right
+                    | (mask & utils.get_bfs_weight(0, 2)) >> 10  // down
+                    | (mask & utils.get_bfs_weight(0, 3)) >> 1;  // left  
+
+                reach[budget as usize - 1] |= next_step;
             }
 
-            for neighbor in gs.board.get_neighbor_indices(current_index) {
-                // Seules les cases VIDES permettent de se déplacer et de continuer le chemin
-                if gs.is_occupied(neighbor) {
-                    continue;
-                }
+            if budget > 1 {
+                let next_step = (mask & utils.get_bfs_weight(1, 0)) << 10 
+                    | (mask & utils.get_bfs_weight(1, 1)) << 1 
+                    | (mask & utils.get_bfs_weight(1, 2)) >> 10 
+                    | (mask & utils.get_bfs_weight(1, 3)) >> 1; 
 
-                let height_diff = (gs.board.get_height(neighbor) - gs.board.get_height(current_index)).abs() as u32;
-                let step_cost = height_diff + 1;
-                let new_cost = current_cost + step_cost;
-
-                if new_cost > movement_budget as u32 {
-                    continue;
-                }
-
-                // Test de sortie du plateau (sur case vide)
-                if gs.board.is_neighboring_exit(neighbor, gs.current_player) && (new_cost + 1 <= movement_budget as u32) {
-                    can_exit = true;
-                }
-
-                // Enregistrement du meilleur coût vers cette case vide
-                if new_cost < *min_cost.get(&neighbor).unwrap_or(&u32::MAX) {
-                    min_cost.insert(neighbor, new_cost);
-                    heap.push(Reverse((new_cost, neighbor)));
-                }
+                reach[budget as usize - 2] |= next_step;
             }
-        }
 
-        if gs.board.is_neighboring_exit(index, gs.current_player) {
-            can_exit = true;
-        }
-    
+            if budget > 2 {
+                let next_step = (mask & utils.get_bfs_weight(2, 0)) << 10 
+                    | (mask & utils.get_bfs_weight(2, 1)) << 1 
+                    | (mask & utils.get_bfs_weight(2, 2)) >> 10 
+                    | (mask & utils.get_bfs_weight(2, 3)) >> 1; 
 
-        for (&sq, _d) in min_cost.iter() {
-            if sq != index { 
-                moves.push(Move {
-                    from: index,
-                    to: sq,
-                    piece,
-                    captured_piece: Pieces::None,
-                    captured: false,
-                    exit: false,
-                });
+                reach[budget as usize - 3] |= next_step;
             }
-        }
 
+            budget -= 1;
 
+            let mut attacks_to_test = reach[budget as usize] & ennemy_mask & !attempted_attaks;
+            attempted_attaks |= attacks_to_test;
 
-        //  Recherche des coûts d'attaque minimaux par cible ennemie
-        let mut attack_info: HashMap<i16, (u32, i16)> = HashMap::new();
-            for (&sq, &d) in min_cost.iter() {
-                for target in gs.board.get_neighbor_indices(sq) {
-                    if gs.is_occupied_by_enemy(target, gs.current_player) {
-                        let dh = (gs.board.get_height(target) - gs.board.get_height(sq)).abs() as u32;
-                        let cost = d + dh + 1;
+            while attacks_to_test != 0 {
+                let attack_id = attacks_to_test.trailing_zeros() as i16;
+                attacks_to_test &= attacks_to_test - 1;
 
-                        if cost <= movement_budget as u32 {
-                            let entry = attack_info.entry(target).or_insert((u32::MAX, sq));
-                            if cost < entry.0 {
-                                *entry = (cost, sq);
-                            }
-                        }
-                    }
+                let vanguard_attack_bonus = piece == Pieces::Vanguard && budget == 0;
+
+                let can_attack = MoveGenerator::can_piece_attack(gs, piece, index, attack_id, vanguard_attack_bonus, utils, board);
+                if can_attack {
+                    sucessfull_attaks |= 1_u128 << attack_id;
                 }
             }
 
-        // coups d'attaque légaux 
-        for (target, (cost, _staging)) in attack_info {
-            if MoveGenerator::can_piece_attack(gs, piece, index, target, cost as i16) {
-                moves.push(Move {
-                    from: index,
-                    to: target,
-                    piece,
-                    captured_piece: gs.get_piece_at(target),
-                    captured: true,
-                    exit: false,
-                });
-            }
+            mask = reach[budget as usize] & empty_mask;
         }
 
-        // Coups spéciaux de l'Explorateur (on transmet les cases visitées sous forme de Vec ou Set)
-        if piece == Pieces::Explorer {
-            let emitted: std::collections::HashSet<i16> = moves
-                .iter()
-                .map(|m| m.to)
-                .filter(|&t| t >= 0)
-                .collect();
+        let all_reach_except_0 = reach[1] | reach[2] | reach[3] | reach[4] | reach[5];
+        let all_reach = all_reach_except_0 | reach[0];
 
-            let special_moves = MoveGenerator::get_explorer_special_moves(gs, index, &emitted);
-            moves.extend(special_moves);
-        }
+        let exit_mask = if gs.current_player == 0 { Utils::P1_EXIT_MASK } else { Utils::P2_EXIT_MASK };
+        let can_exit = (all_reach_except_0 & exit_mask & (empty_mask | (1_u128 << index))) != 0;
 
-        if can_exit {
-            moves.push(Move {
-                from: index,
-                to: -1,
-                piece,
-                captured_piece: Pieces::None,
-                captured: false,
-                exit: true,
-            });
-        }
+        let (explorer_free_moves, explorer_attack_moves) = 
+            if piece == Pieces::Explorer { 
+                MoveGenerator::get_explorer_special_moves(gs, index, (all_reach & empty_mask) | sucessfull_attaks, utils, board) 
+            } else { 
+                (0_u128, 0_u128) 
+            };
 
-        moves
+        let free_moves = (all_reach & empty_mask & !(1_u128 << index)) | explorer_free_moves;
+        let attack_moves = sucessfull_attaks | explorer_attack_moves;        
+
+        return (free_moves, attack_moves, can_exit);
     }
 
-    
-    pub fn generate_all_moves(gs: &GameState) -> Vec<Move> {
+     
+    pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board) -> Vec<Move> {
         let mut moves = Vec::new();
 
-        for index in 0..100 {           
-            if gs.is_occupied_by_ally(index, gs.current_player) {
+        let player_maps = if gs.current_player == 0 { [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1] } else { [gs.explorer_p2, gs.vanguard_p2, gs.sentinel_p2] };
+        let pieces = [Pieces::Explorer, Pieces::Vanguard, Pieces::Sentinel];
 
-                let piece_moves = MoveGenerator::get_piece_moves(gs, index, gs.get_piece_at(index));
-                moves.extend(piece_moves);
+
+        for i in 0..3  {
+
+            let mut map = player_maps[i];
+            let piece = pieces[i];
+            while map != 0 {
+                let index = map.trailing_zeros() as i16;
+                map &= map - 1;
+
+                let (mut free_moves, mut attack_moves, can_exit) = MoveGenerator::get_piece_moves(gs, index, piece, utils, board);
+
+                if can_exit {
+                    moves.push(Move {from: index, to: -1, piece: piece, captured_piece: Pieces::None, captured: false, exit: true});
+                }
+
+                while attack_moves != 0 {
+                    let to = attack_moves.trailing_zeros() as i16;
+                    attack_moves &= attack_moves - 1;
+
+                    let captured_piece = gs.get_piece_at(to);
+
+                    moves.push(Move {from: index, to: to, piece: piece, captured_piece: captured_piece, captured: true, exit: false} );
+                }
+
+                while free_moves != 0 {
+                    let to = free_moves.trailing_zeros() as i16;
+                    free_moves &= free_moves - 1;
+
+                    moves.push(Move {from: index, to: to, piece: piece, captured_piece: Pieces::None, captured: false, exit: false} );
+                }
+
             }
         }
 
+
+        
         if moves.is_empty() { // le move "pass"
             moves.push(Move {
                 from: -1,
@@ -295,8 +267,41 @@ impl MoveGenerator {
     }
 
 
+    /// Utile pour la recherche quiescence
+    pub fn generate_forcing_moves(gs: &GameState, utils: &Utils, board: &Board) -> Vec<Move> {
+        let mut moves = Vec::new();
+
+        let player_maps = if gs.current_player == 0 {
+            [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1]
+        } else {
+            [gs.explorer_p2, gs.vanguard_p2, gs.sentinel_p2]
+        };
+        let pieces = [Pieces::Explorer, Pieces::Vanguard, Pieces::Sentinel];
+
+        for i in 0..3 {
+            let mut map = player_maps[i];
+            while map != 0 {
+                let index = map.trailing_zeros() as i16;
+                map &= map - 1;
+
+                let (_, mut attack_moves, can_exit) =
+                    MoveGenerator::get_piece_moves(gs, index, pieces[i], utils, board);
+
+                if can_exit {
+                    moves.push(Move { from: index, to: -1, piece: pieces[i], captured_piece: Pieces::None, captured: false, exit: true });
+                }
+                while attack_moves != 0 {
+                    let to = attack_moves.trailing_zeros() as i16;
+                    attack_moves &= attack_moves - 1;
+                    moves.push(Move { from: index, to, piece: pieces[i], captured_piece: gs.get_piece_at(to), captured: true, exit: false });
+                }
+            }
+        }
+        moves
+    }
 
 }
+
 
 
 
