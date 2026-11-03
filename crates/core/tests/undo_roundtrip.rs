@@ -35,32 +35,48 @@ fn random_heights(rng: &mut Rng) -> [i16; 100] {
 
 #[test]
 fn undo_roundtrip_sur_parties_autojouees() {
-    let zob = Zobrist::new();
+    let mut zob = Zobrist::new(); // Zobrist peut nécessiter d'être mut pour new_search() si utilisé
     let mut rng = Rng(0x9E3779B97F4A7C15);
     let mut checked = 0u64;
 
     for game in 0..50 {
         let board = Board { board: random_heights(&mut rng) };
-        let utils = Utils::new(board);
+        let utils = Utils::new(board); // Si utils precalculate_all_masks demande &mut
         let mut gs = GameState::new();
         let mut ply = 0;
 
-        while !gs.is_game_over() && ply < 200 {
-            let moves = MoveGenerator::generate_all_moves(&gs, &utils, &board);
-            let before = gs;
-            let hash_before = zob.get_hash(&before);
+        // Si vous avez choisi la Méthode 1 (tampon partagé) :
+        // let mut moves = Vec::with_capacity(128); 
 
+        while !gs.is_game_over() && ply < 200 {
+            // Ligne à ajuster selon votre choix d'optimisation pour générer les coups :
+            let mut moves = Vec::with_capacity(248);
+            MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut moves);
+            // Si Méthode 1 : MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut moves);
+
+            let before_copy = gs; // GameState implémente Copy, on sauvegarde l'état initial
+            let hash_before = zob.get_hash(&before_copy);
+
+            // itération sur les coups (utilisez .as_slice() si vous avez choisi la structure MoveList)
             for m in &moves {
-                let after = before.apply_move(m);
-                let back = after.undo_move(m);
-                assert_eq!(back, before,
-                    "game {game} ply {ply} : undo != état initial pour {m:?}\navant : {before:?}\naprès retour : {back:?}");
-                assert_eq!(zob.get_hash(&back), hash_before,
+                let mut test_state = before_copy; // On part de l'état initial
+                
+                // Paradigme Make/Unmake sur place
+                test_state.apply_move(m);
+                test_state.undo_move(m);
+                
+                assert_eq!(test_state, before_copy,
+                    "game {game} ply {ply} : undo != état initial pour {m:?}\navant : {before_copy:?}\naprès retour : {test_state:?}");
+                assert_eq!(zob.get_hash(&test_state), hash_before,
                     "game {game} ply {ply} : hash non restauré pour {m:?}");
                 checked += 1;
             }
 
-            gs = before.apply_move(&moves[rng.below(moves.len() as u64) as usize]);
+            // Choisir un coup aléatoire pour la vraie partie
+            let chosen_move = moves[rng.below(moves.len() as u64) as usize];
+            
+            // Appliquer le coup au GameState réel de la boucle
+            gs.apply_move(&chosen_move);
             ply += 1;
         }
     }

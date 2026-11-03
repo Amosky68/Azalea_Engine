@@ -2,6 +2,9 @@ use crate::board::Board;
 use crate::gamestate::GameState;
 
 
+const FREE_MOVEMENT_LAYOUT_MAX_BUDGETS: usize = 30; // budgets pour Explorer, Vanguard, Sentinel
+
+
 
 pub struct Utils {
     pub bfs_weights : [[u128; 4]; 3], // direction, step size (0,1,2) 
@@ -9,6 +12,8 @@ pub struct Utils {
 
     pub row_mask : [u128; 10],
     pub col_mask : [u128; 10],
+    pub triple_col_mask : [u128; 10], // masque des colonnes triples (pour les sentinelles)
+
 
     pub neighbor_mask : [u128; 100],
     pub diagonal_neighbor_mask : [u128; 100],
@@ -18,6 +23,8 @@ pub struct Utils {
     // = nombre de DEMI-COUPS propres pour qu'une Sentinelle en sq sorte
     // (le +1 = le pas final hors plateau ; le /3 = budget Sentinelle par coup)
     pub sentinel_plies: [[u8; 100]; 2],
+
+    pub free_movement_layout : [[u128; 100]; 30], // budget, index 
 
 }
 
@@ -32,10 +39,11 @@ impl Utils {
     pub const TOP_SHIFT_MASK : u128 = !(0b1111111111 << 90);
     pub const BOTTOM_SHIFT_MASK : u128 = !(0b1111111111);
     // LEFT_SHIFT_MASK est utilisé avec << 1 (déplacement vers l'Est), on doit masquer la colonne 9
-    pub const LEFT_SHIFT_MASK : u128 = !(0b10000000001000000000100000000010000000001000000000100000000010000000001000000000);
+    pub const LEFT_SHIFT_MASK : u128 =  !(0b1000000000100000000010000000001000000000100000000010000000001000000000100000000010000000001000000000);
     // RIGHT_SHIFT_MASK est utilisé avec >> 1 (déplacement vers l'Ouest), on doit masquer la colonne 0
-    pub const RIGHT_SHIFT_MASK : u128 = !(0b00000000010000000001000000000100000000010000000001000000000100000000010000000001);
-    
+    pub const RIGHT_SHIFT_MASK : u128 = !(0b0000000001000000000100000000010000000001000000000100000000010000000001000000000100000000010000000001);
+    pub const FIRST_COL_MASK : u128 =     0b0000000001000000000100000000010000000001000000000100000000010000000001000000000100000000010000000001;
+
 
     fn precalculate_bfs_weights(&mut self, board: &Board) {
         for layer in 0..3 {
@@ -84,6 +92,18 @@ impl Utils {
         }
     }
 
+    fn precalculate_triple_col_masks(&mut self) {
+        for i in 0..10 {
+            let mut mask: u128 = 0;
+            for j in 0..10 {
+                if (j as i16 - i as i16).abs() <= 1 {
+                    mask |= Utils::FIRST_COL_MASK << j;
+                }
+            }
+            self.triple_col_mask[i] = mask;
+        }
+    }
+
     fn precalculate_neighbor_masks(&mut self, board : &Board) {
         for index in 0..100 {
             let mut mask : u128 = 0;
@@ -116,6 +136,58 @@ impl Utils {
             if y < 8 { mask |= 1 << Board::coordinates_to_index(x, y+2); }
 
             self.two_step_mask[index as usize] = mask;
+        }
+    }
+
+
+
+    fn bfs_from_square(&mut self, start_index: usize, mut budget : i32) -> u128 {
+        let mut mask = 1_u128 << start_index;
+        let mut reach = [0_u128; FREE_MOVEMENT_LAYOUT_MAX_BUDGETS];
+        reach[budget as usize] = mask;
+        let mut all_reach : u128 = 0;
+
+        while  budget > 0 {
+            if budget > 0 {
+                let next_step = (mask & self.get_bfs_weight(0, 0)) << 10 // up
+                    | (mask & self.get_bfs_weight(0, 1)) << 1   // right
+                    | (mask & self.get_bfs_weight(0, 2)) >> 10  // down
+                    | (mask & self.get_bfs_weight(0, 3)) >> 1;  // left  
+
+                reach[budget as usize - 1] |= next_step;
+            }
+
+            if budget > 1 {
+                let next_step = (mask & self.get_bfs_weight(1, 0)) << 10 
+                    | (mask & self.get_bfs_weight(1, 1)) << 1 
+                    | (mask & self.get_bfs_weight(1, 2)) >> 10 
+                    | (mask & self.get_bfs_weight(1, 3)) >> 1; 
+
+                reach[budget as usize - 2] |= next_step;
+            }
+
+            if budget > 2 {
+                let next_step = (mask & self.get_bfs_weight(2, 0)) << 10 
+                    | (mask & self.get_bfs_weight(2, 1)) << 1 
+                    | (mask & self.get_bfs_weight(2, 2)) >> 10 
+                    | (mask & self.get_bfs_weight(2, 3)) >> 1; 
+
+                reach[budget as usize - 3] |= next_step;
+            }
+
+            budget -= 1;
+            mask = reach[budget as usize];
+            all_reach |= mask;
+        }
+
+        all_reach
+    }
+
+    fn precalculate_free_movement_layout(&mut self) {
+        for budget in 0..FREE_MOVEMENT_LAYOUT_MAX_BUDGETS {
+            for index in 0..100 {
+                self.free_movement_layout[budget][index] = self.bfs_from_square(index, budget as i32);
+            }
         }
     }
 
@@ -159,10 +231,12 @@ impl Utils {
     pub fn precalculate_all_masks(&mut self, board : &Board) {
         self.precalculate_bfs_weights(board);
         self.precalculate_row_col_masks();
+        self.precalculate_triple_col_masks();
         self.precalculate_neighbor_masks(board);
         self.precalculate_diagonal_neighbor_masks(board);
         self.precalculate_two_step_masks();
         self.precalculate_sentinel_plies(board);
+        self.precalculate_free_movement_layout();
     }
 
     pub fn new(board : Board) -> Utils {
@@ -170,10 +244,12 @@ impl Utils {
             bfs_weights : [[0; 4]; 3],
             row_mask : [0; 10],
             col_mask : [0; 10],
+            triple_col_mask : [0; 10],
             neighbor_mask : [0; 100],
             diagonal_neighbor_mask : [0; 100],
             two_step_mask : [0; 100],
             sentinel_plies : [[0; 100]; 2],
+            free_movement_layout : [[0; 100]; FREE_MOVEMENT_LAYOUT_MAX_BUDGETS],
         };
 
         utils.precalculate_all_masks(&board);
@@ -183,6 +259,10 @@ impl Utils {
 
 
 
+    #[inline]
+    pub fn get_triple_col_mask(&self, col: usize) -> u128 {
+        self.triple_col_mask[col]
+    }
 
     #[inline]
     pub fn get_neighbor_mask(&self, index: i16) -> u128 {
@@ -212,6 +292,11 @@ impl Utils {
     #[inline]
     pub fn get_bfs_weight(&self, layer: usize, direction: usize) -> u128 {
         self.bfs_weights[layer][direction]
+    }
+
+    #[inline]
+    pub fn get_free_movement_layout(&self, budget: usize, index: usize) -> u128 {
+        self.free_movement_layout[budget][index]
     }
 
 

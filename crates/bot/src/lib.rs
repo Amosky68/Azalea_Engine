@@ -21,7 +21,7 @@ thread_local! {
 }
 
 fn choose(turn: &Turn) -> usize {
-    let gs = convert::to_gamestate(&turn.state);
+    let mut gs = convert::to_gamestate(&turn.state);
     let board = convert::to_board(&turn.state);
 
     CACHE.with(|cell| {
@@ -46,7 +46,7 @@ fn choose(turn: &Turn) -> usize {
         let cache = cache.as_mut().unwrap();
 
         let fuel_start = fuel_left();
-        let (mv, stats) = cache.search.get_best_move_with_stats(&gs, &cache.utils, &board);
+        let (mv, stats) = cache.search.get_best_move_with_stats(&mut gs, &cache.utils, &board);
         let fuel_used = fuel_start - fuel_left();
 
         traversal_bot::log(&format!(

@@ -210,8 +210,8 @@ impl MoveGenerator {
     }
 
      
-    pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board) -> Vec<Move> {
-        let mut moves = Vec::new();
+    pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board, moves: &mut Vec<Move>) {
+        moves.clear();
 
         let player_maps = if gs.current_player == 0 { [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1] } else { [gs.explorer_p2, gs.vanguard_p2, gs.sentinel_p2] };
         let pieces = [Pieces::Explorer, Pieces::Vanguard, Pieces::Sentinel];
@@ -263,7 +263,6 @@ impl MoveGenerator {
             });
         }
 
-        moves
     }
 
 

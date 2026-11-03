@@ -1,4 +1,4 @@
-use crate::gamestate::GameState;
+use crate::gamestate::{GameState, Pieces};
 use crate::moves::{Move, MoveGenerator};
 use crate::eval::Evaluator;
 use crate::zobrist::{Zobrist, Bounds};
@@ -134,7 +134,8 @@ impl Search {
         let mut best_move = Move::pass_mv();
         let mut best_score = if maximizing_player { i32::MIN } else { i32::MAX };
 
-        let mut moves = MoveGenerator::generate_all_moves(state, utils, board); // Todo (prendre en compte le coup du transposition table pour le Move Ordering)
+        let mut moves = Vec::with_capacity(248); // 248 coups max par position (estimation haute)
+        MoveGenerator::generate_all_moves(state, utils, board, &mut moves);
         Search::order_moves(&mut moves, _tt_move, state.current_player as i16);
 
 
@@ -146,7 +147,7 @@ impl Search {
 
                 // Late Move Reductions (LMR)
                 // pas de réductions sur les coups de captures, de sortie ou de transposition table, ni sur les 4 premiers coups (les mieux ordonnés)
-                let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to); 
+                let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to) && !(mv.piece == Pieces::Sentinel && state.exited_piece_count == 0); 
                 let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MIN && quiet { Search::lmr_reduction(depth, idx) } else { 0 };
 
                 // recherche réduite, si elle bat alpha -> on re-cherche à profondeur complète 
@@ -169,7 +170,9 @@ impl Search {
             for mv in moves {
                 let new_state = state.apply_move(&mv);
 
-                let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to);
+                // Late Move Reductions (LMR)
+                // pas de réductions sur les coups de captures, de sortie ou de transposition table, ni sur les 4 premiers coups (les mieux ordonnés)
+                let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to) && !(mv.piece == Pieces::Sentinel && state.exited_piece_count == 0);
                 let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MAX && quiet { Search::lmr_reduction(depth, idx) } else { 0 };
 
                 let eval = if reduce > 0 {

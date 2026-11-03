@@ -9,7 +9,20 @@ const RACE_WIN: i32 = 180; // Bonus pour le joueur qui a la sentinel la plus ava
 
 
 
+const MAT_RACE : [i32; 3] = [150, 250, 700];
+const MAT_SCORE: [i32; 3] = [100, 200, 300];
 
+const SCORE_MULTIPLIER: i32 = 1000; 
+const CLOSEST_PIECE_MULTIPLIER: i32 = 40; 
+const DISTANCE_MULTIPLIER: i32 = 3;
+const SENTINEL_DISTANCE_MULTIPLIER: i32 = 200;
+const SENTINEL_GOAL_BONUS: i32 = 300;
+const ADJACENT_ALLYS_MULTIPLIER: i32 = 10;
+
+const SENTINEL_ALONE_BONUS: i32 = 400; // Bonus si une sentinel est seule (sans enemies) sur une collone de 3 de large
+const SENTINEL_NO_ALLY_MALUS: i32 = 0; // Malus si une sentinel n'a pas d'allié à proximité (précalculé dans Utils)
+
+const SENTINEL_THREAT_MALUS: i32 = 250;
 
 pub struct Evaluator; 
 
@@ -25,6 +38,23 @@ impl Evaluator {
     /// - score de chaque joueur 
     /// - bonus si sentinel sur les 3 dernières lignes de l'objectif
     /// - bonus pour les pièces alliées qui se touchent 
+    /// 
+    /// 
+    ///  Idée d'amélioration : 
+    ///  - Bonus si une sentinel est seule sur une collone de 3x3
+    ///  -> chaque pièce a une valeur différente (sentinel > vanguard > explorer) plutot que de dire explorer = 1, vanguard = 2, sentinel = 3
+    /// 
+    ///  - Bonus pour le nombre de cases atteignables si aucune pièce alliée ne bloque le passage (prend en compte la topologie du terrain) (précalculé dans Utils)
+    ///  - Malus si un sentinel n'a pas d'allié à proximité (précalculé dans Utils)
+    ///  - Précalculer une *zone de préférence* qui est la zone par laquelle les sentinels passent pour aller à l'objectif 
+    ///         -> On répètes les itérations bfs depuis le départ de chaque sentinel jusqu'a l'objectif
+    ///         -> On pourrait utiliser ces zones qui représente les chemins habituels des sentinels pour l'eval 
+    /// 
+    /// 
+    /// 
+    /// 
+    /// 
+    /// 
     /// 
 
 
@@ -95,22 +125,27 @@ impl Evaluator {
     pub fn evaluate_from_player_side(state: &GameState, utils : &Utils, player: i32) -> i32 {
         let (ally_explorer, ally_vanguard, ally_sentinel) = state.get_player_pieces_map(player);
         let ally_map = ally_explorer | ally_vanguard | ally_sentinel;
+        let (enemy_explorer, enemy_vanguard, enemy_sentinel) = state.get_player_pieces_map(1 - player);
+        let enemy_map = enemy_explorer | enemy_vanguard | enemy_sentinel;
         
         let mut score : i32 = 0;
 
 
         // score de chaque joueur 
         let my_score = if player == 0 { state.score_p1 } else { state.score_p2 };
-        score += my_score * 1000;
+        score += my_score * SCORE_MULTIPLIER;
 
 
-        score += ((ally_explorer.count_ones() + ally_vanguard.count_ones() * 2 + ally_sentinel.count_ones() * 3) as i32) * 10;
+        // score += ((ally_explorer.count_ones() + ally_vanguard.count_ones() * 2 + ally_sentinel.count_ones() * 3) as i32) * 10;
+        let race_alive = state.exited_piece_count == 0 && (state.sentinel_p1 | state.sentinel_p2) != 0;
+        let values = if race_alive { &MAT_RACE } else { &MAT_SCORE };
+        score += ally_explorer.count_ones() as i32 * values[0] + ally_vanguard.count_ones() as i32 * values[1] + ally_sentinel.count_ones() as i32 * values[2];
 
 
         // Distance entre la pièce la plus avancée et l'objectif X force de la pièce
         let (closest_piece, distance) = Evaluator::get_closest_piece_to_goal(state, utils, player);
         if closest_piece != Pieces::None {
-            score += (10 - distance) * closest_piece.get_attack_force() as i32 * 40;
+            score += (10 - distance) * closest_piece.get_attack_force() as i32 * CLOSEST_PIECE_MULTIPLIER;
         }
 
 
@@ -122,25 +157,90 @@ impl Evaluator {
             if ally_pieces_in_row != 0 {
                 let ally_piece_count = ally_pieces_in_row.count_ones() as i32;
                 let rows_to_go = if player == 0 { 9 - row as i32 } else { row as i32 };
-                score += (10 - rows_to_go) * ally_piece_count * 3; 
+                score += (10 - rows_to_go) * ally_piece_count * DISTANCE_MULTIPLIER; 
             }
         }
 
 
         // distance de la sentinel la plus avancée à l'objectif
         let sentinel_distance = Evaluator::sentinel_distance_to_exit(state, utils,player);
-        score += (10 - sentinel_distance) * 200; 
+        score += (10 - sentinel_distance) * SENTINEL_DISTANCE_MULTIPLIER; 
 
         // Bonus si sentinel sur les 3 dernières lignes de l'objectif
         let goal_area = if player == 0 { Utils::P1_GOAL_AREA_MASK } else { Utils::P2_GOAL_AREA_MASK };
         if goal_area & ally_sentinel != 0 {
-            score += 300;
+            score += SENTINEL_GOAL_BONUS;
         }
+
+
+        // Bonus si une sentinel est seule (sans enemies) sur une collone de 3 de large 
+        let sentinel_1 = ally_sentinel & (ally_sentinel - 1);
+        let sentinel_2 = ally_sentinel ^ sentinel_1;
+
+        if sentinel_1 != 0 {
+            let sentinel_1_index = sentinel_1.trailing_zeros() as usize;
+            score += ((enemy_map & utils.get_triple_col_mask(sentinel_1_index % 10)) == 0) as i32 * SENTINEL_ALONE_BONUS;
+            score -= ((utils.get_free_movement_layout(4, sentinel_1_index) & ally_map) == 0) as i32 * SENTINEL_NO_ALLY_MALUS;
+        }
+
+        if sentinel_2 != 0 {
+            let sentinel_2_index = sentinel_2.trailing_zeros() as usize;
+            score += ((enemy_map & utils.get_triple_col_mask(sentinel_2_index % 10)) == 0) as i32 * SENTINEL_ALONE_BONUS;
+            score -= ((utils.get_free_movement_layout(4, sentinel_2_index) & ally_map) == 0) as i32 * SENTINEL_NO_ALLY_MALUS;
+        }
+
+        
+        // R1 — Menace sur la sentinelle leader (phase de course uniquement)
+        if state.exited_piece_count == 0 && ally_sentinel != 0 {
+            let mut leader_sq = 0;
+            let mut min_dist = 100;
+            let mut temp_s = ally_sentinel;
+            
+            // Recherche de la sentinelle leader (la plus proche de la ligne de sortie)
+            while temp_s != 0 {
+                let sq = temp_s.trailing_zeros() as usize;
+                temp_s &= temp_s - 1;
+                let dist = if player == 0 { 9 - (sq / 10) } else { sq / 10 };
+                if dist < min_dist {
+                    min_dist = dist;
+                    leader_sq = sq;
+                }
+            }
+
+            let s_neighbors = utils.get_neighbor_mask(leader_sq as i16);
+            let support = s_neighbors & ally_map; // Allié adjacent à la sentinelle leader
+
+            if support == 0 {
+                let mut hunter_reach = 0_u128;
+
+                // Portée des sentinelles ennemies (budget 3)
+                let mut es = enemy_sentinel;
+                while es != 0 {
+                    let e = es.trailing_zeros() as usize;
+                    es &= es - 1;
+                    hunter_reach |= utils.get_free_movement_layout(3, e);
+                }
+
+                // Portée des avant-gardes ennemies (budget 4)
+                let mut ev = enemy_vanguard;
+                while ev != 0 {
+                    let e = ev.trailing_zeros() as usize;
+                    ev &= ev - 1;
+                    hunter_reach |= utils.get_free_movement_layout(4, e);
+                }
+
+                // Si un chasseur ennemie peut atteindre une case adjacente et qu'aucun allié ne soutient
+                if (hunter_reach & s_neighbors) != 0 {
+                    score -= SENTINEL_THREAT_MALUS;
+                }
+            }
+        }
+
 
 
         let neighboring_map = (ally_map & Utils::TOP_SHIFT_MASK) << 10 | (ally_map & Utils::BOTTOM_SHIFT_MASK) >> 10 | (ally_map & Utils::LEFT_SHIFT_MASK) << 1 | (ally_map & Utils::RIGHT_SHIFT_MASK) >> 1;
         let adjacent_allys = ally_map & neighboring_map;
-        score += adjacent_allys.count_ones() as i32 * 10;
+        score += adjacent_allys.count_ones() as i32 * ADJACENT_ALLYS_MULTIPLIER;
 
 
         score
@@ -156,9 +256,9 @@ impl Evaluator {
         if state.is_game_over() {
             let winner = state.get_winner();
             if winner == Some(0) {
-                return 1_000_000; // Gagné
+                return 1_000_000 - state.ply_count; // Gagné
             } else if winner == Some(1) {
-                return -1_000_000; // Perdu
+                return -1_000_000 + state.ply_count; // Perdu
             }
             return 0; // Match nul
         }

@@ -45,13 +45,19 @@ fn build_position(pos: &serde_json::Value) -> (GameState, Utils, Board) {
 
 
 /// Perft au sens de la banque : une feuille (profondeur 0 OU partie finie) vaut 1.
-fn perft(gs: &GameState, utils : &Utils, board : &Board ,depth: u32) -> u64 {
+fn perft(gs: &mut GameState, utils : &Utils, board : &Board ,depth: u32) -> u64 {
     if depth == 0 || gs.is_game_over() {
         return 1;
     }
     let mut total = 0u64;
-    for m in MoveGenerator::generate_all_moves(gs, utils, board) {
-        total += perft(&gs.apply_move(&m), utils, board, depth - 1);
+
+    let mut moves = Vec::with_capacity(248);
+    MoveGenerator::generate_all_moves(gs, utils, board, &mut moves);
+
+    for m in  moves{
+        gs.apply_move(&m);
+        total += perft(gs, utils, board, depth - 1);
+        gs.undo_move(&m);
     }
     total
 }
@@ -61,14 +67,14 @@ fn profondeurs_1_2_et_divide() {
     let bank = load_bank();
     for pos in bank["positions"].as_array().unwrap() {
         let id = pos["id"].as_str().unwrap();
-        let (gs, utils, board) = build_position(pos);
+        let (mut gs, utils, board) = build_position(pos);
 
         // 1. Comptes globaux aux profondeurs 1 et 2
         for d in pos["depths"].as_array().unwrap() {
             let depth = d["depth"].as_u64().unwrap() as u32;
             if depth > 2 { continue; }
             let expected = d["nodes"].as_u64().unwrap();
-            let got = perft(&gs, &utils, &board, depth);
+            let got = perft(&mut gs, &utils, &board, depth);
             assert_eq!(got, expected, "{id}: perft profondeur {depth} — attendu {expected}, obtenu {got}");
         }
 
@@ -83,7 +89,11 @@ fn profondeurs_1_2_et_divide() {
             })
             .collect();
 
-        let actual = MoveGenerator::generate_all_moves(&gs, &utils, &board);
+
+
+        let mut actual = Vec::with_capacity(248);
+        MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut actual);
+
         assert_eq!(actual.len(), expected.len(),
             "{id}: {} coups racine générés, {} attendus", actual.len(), expected.len());
 
@@ -91,7 +101,10 @@ fn profondeurs_1_2_et_divide() {
             let k = (m.from, m.to, m.exit);
             let exp = expected.get(&k)
                 .unwrap_or_else(|| panic!("{id}: coup généré absent de la banque : {k:?}"));
-            let got = perft(&gs.apply_move(m), &utils, &board, 1);
+            gs.apply_move(m);
+            let got = perft(&mut gs, &utils, &board, 1);
+            gs.undo_move(m);
+
             assert_eq!(got, *exp, "{id}: le coup {k:?} mène à {got} réponses, la banque en attend {exp}");
         }
         for k in expected.keys() {
@@ -107,12 +120,12 @@ fn profondeurs_profondes() {
     let bank = load_bank();
     for pos in bank["positions"].as_array().unwrap() {
         let id = pos["id"].as_str().unwrap();
-        let (gs, utils, board) = build_position(pos);
+        let (mut gs, utils, board) = build_position(pos);
         for d in pos["depths"].as_array().unwrap() {
             let depth = d["depth"].as_u64().unwrap() as u32;
             if depth < 3 { continue; }
             let expected = d["nodes"].as_u64().unwrap();
-            assert_eq!(perft(&gs, &utils, &board, depth), expected, "{id}: perft profondeur {depth}");
+            assert_eq!(perft(&mut gs, &utils, &board, depth), expected, "{id}: perft profondeur {depth}");
         }
     }
 }
