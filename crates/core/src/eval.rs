@@ -24,6 +24,12 @@ const SENTINEL_NO_ALLY_MALUS: i32 = 0; // Malus si une sentinel n'a pas d'allié
 
 const SENTINEL_THREAT_MALUS: i32 = 250;
 
+const SENTINEL_ESCORT_BONUS: i32 = 80;  // par allié pouvant renforcer en 1 coup
+const SENTINEL_ESCORT_CAP: i32 = 160;   // on compte au max 2 escorts
+
+const ENDGAME_PLY_MALUS: i32 = 150; // Malus par demi-coup pour le joueur qui a la sentinel la plus avancée
+const ENDGAME_PIECE_MULTIPLIER: i32 = 300; // Bonus pour le joueur qui a la sentinel la plus avancée
+
 pub struct Evaluator; 
 
 
@@ -189,9 +195,9 @@ impl Evaluator {
             score -= ((utils.get_free_movement_layout(4, sentinel_2_index) & ally_map) == 0) as i32 * SENTINEL_NO_ALLY_MALUS;
         }
 
-        
-        // R1 — Menace sur la sentinelle leader (phase de course uniquement)
-        if state.exited_piece_count == 0 && ally_sentinel != 0 {
+
+        // Alliées venant escoter la sentinelle leader 
+        if ally_sentinel != 0 {
             let mut leader_sq = 0;
             let mut min_dist = 100;
             let mut temp_s = ally_sentinel;
@@ -208,31 +214,98 @@ impl Evaluator {
             }
 
             let s_neighbors = utils.get_neighbor_mask(leader_sq as i16);
-            let support = s_neighbors & ally_map; // Allié adjacent à la sentinelle leader
 
-            if support == 0 {
-                let mut hunter_reach = 0_u128;
+            // R1 — Menace sur la sentinelle leader (phase de course uniquement)
+            if state.exited_piece_count == 0 {
+                let support = s_neighbors & ally_map; // Allié adjacent à la sentinelle leader
+                let support_count = (s_neighbors & ally_map).count_ones() as i32;
 
-                // Portée des sentinelles ennemies (budget 3)
-                let mut es = enemy_sentinel;
-                while es != 0 {
-                    let e = es.trailing_zeros() as usize;
-                    es &= es - 1;
-                    hunter_reach |= utils.get_free_movement_layout(3, e);
+                if support == 0 {
+                    let mut hunter_reach = 0_u128;
+
+                    // Portée des sentinelles ennemies (budget 3)
+                    let mut es = enemy_sentinel;
+                    while es != 0 {
+                        let e = es.trailing_zeros() as usize;
+                        es &= es - 1;
+                        hunter_reach |= utils.get_free_movement_layout(3, e);
+                    }
+
+                    // Portée des avant-gardes ennemies (budget 4)
+                    let mut ev = enemy_vanguard;
+                    while ev != 0 {
+                        let e = ev.trailing_zeros() as usize;
+                        ev &= ev - 1;
+                        hunter_reach |= utils.get_free_movement_layout(4, e);
+                    }
+
+                    // Si un chasseur ennemi peut atteindre une case adjacente sans soutien allié
+                    if hunter_reach & s_neighbors != 0 {
+                        if support_count == 0 {
+                            // R1 (inchangé) : n'importe quel S/V seul prend le runner (3 = 3)
+                            score -= SENTINEL_THREAT_MALUS;
+                        } else {
+                            // C2 (nouveau) : paire chasseur + explorer (attaque 3+1 = 4) bat la défense 3+1
+                            let mut explorer_reach = 0_u128;
+                            let mut ee = enemy_explorer;
+                            while ee != 0 {
+                                let e = ee.trailing_zeros() as usize;
+                                ee &= ee - 1;
+                                explorer_reach |= utils.get_free_movement_layout(5, e);
+                            }
+                            if explorer_reach & s_neighbors != 0 {
+                                score -= SENTINEL_THREAT_MALUS;
+                            }
+                        }
+                    }
                 }
+            }
 
-                // Portée des avant-gardes ennemies (budget 4)
-                let mut ev = enemy_vanguard;
-                while ev != 0 {
-                    let e = ev.trailing_zeros() as usize;
-                    ev &= ev - 1;
-                    hunter_reach |= utils.get_free_movement_layout(4, e);
-                }
+            // Calcul du nombre d'escortes capables d'atteindre le voisinage de la sentinelle leader
+            let mut escorts = 0;
+            let mut temp = ally_map & !(1u128 << leader_sq);
+            while temp != 0 {
+                let sq = temp.trailing_zeros() as usize;
+                temp &= temp - 1;
+                
+                let mask = 1u128 << sq;
+                let b = if ally_sentinel & mask != 0 {
+                    3
+                } else if ally_vanguard & mask != 0 {
+                    4
+                } else {
+                    5
+                };
 
-                // Si un chasseur ennemie peut atteindre une case adjacente et qu'aucun allié ne soutient
-                if (hunter_reach & s_neighbors) != 0 {
-                    score -= SENTINEL_THREAT_MALUS;
+                if utils.get_free_movement_layout(b, sq) & s_neighbors != 0 {
+                    escorts += 1;
                 }
+            }
+            score += (escorts * SENTINEL_ESCORT_BONUS).min(SENTINEL_ESCORT_CAP);
+        }
+
+
+        // de combien on gagne la course finale 
+
+        if state.exited_piece_count == 1 {
+            let mut map = ally_map;
+            let mut min_dist = 100;
+            let mut piece = Pieces::None;
+            while map != 0 {
+                let sq = map.trailing_zeros() as usize;
+                map &= map - 1;
+                let dist = utils.get_distance_to_exit(player as usize, sq);
+
+                if dist < min_dist {
+                    min_dist = dist;
+                    piece = state.get_piece_at(sq as i16);
+                }
+            }
+            if  piece != Pieces::None  {
+                let budget = piece.get_movement_budget();
+                let my_plies = (min_dist as i32 + budget) / budget;
+
+                score += - ENDGAME_PLY_MALUS * my_plies + piece.get_attack_force() as i32 * ENDGAME_PIECE_MULTIPLIER;
             }
         }
 
@@ -276,6 +349,7 @@ impl Evaluator {
             race_bonus = if p0_wins_race { RACE_WIN } else { -RACE_WIN };
         }
 
+
         return player_score - opponent_score + race_bonus;
     }
 
@@ -293,6 +367,9 @@ impl Evaluator {
         }
         if mv.captured {
             score += 500; // Priorité aux coups qui captivent une pièce
+        }
+        if mv.piece == Pieces::Sentinel {
+            score += 200; // Priorité aux coups qui déplacent une sentinel
         }
 
         let (_, y1) = Board::index_to_coordinates(mv.from);

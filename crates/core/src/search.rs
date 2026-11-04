@@ -134,7 +134,7 @@ impl Search {
         let mut best_move = Move::pass_mv();
         let mut best_score = if maximizing_player { i32::MIN } else { i32::MAX };
 
-        let mut moves = Vec::with_capacity(248); // 248 coups max par position (estimation haute)
+        let mut moves = Vec::with_capacity(248); //  coups max par position (estimation haute)
         MoveGenerator::generate_all_moves(state, utils, board, &mut moves);
         Search::order_moves(&mut moves, _tt_move, state.current_player as i16);
 

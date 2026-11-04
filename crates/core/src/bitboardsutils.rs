@@ -23,6 +23,7 @@ pub struct Utils {
     // = nombre de DEMI-COUPS propres pour qu'une Sentinelle en sq sorte
     // (le +1 = le pas final hors plateau ; le /3 = budget Sentinelle par coup)
     pub sentinel_plies: [[u8; 100]; 2],
+    pub dist_to_exit: [[u16; 100]; 2],
 
     pub free_movement_layout : [[u128; 100]; 30], // budget, index 
 
@@ -226,6 +227,15 @@ impl Utils {
         }
     }
 
+    fn precalculate_dist_to_exit(&mut self, board: &Board) {
+        for (player, exit_row) in [(0usize, 9usize), (1usize, 0usize)] {
+            let dist = Utils::dist_to_exit_row(board, exit_row);
+            for sq in 0..100 {
+                self.dist_to_exit[player][sq] = dist[sq];
+            }
+        }
+    }
+
 
 
     pub fn precalculate_all_masks(&mut self, board : &Board) {
@@ -236,6 +246,7 @@ impl Utils {
         self.precalculate_diagonal_neighbor_masks(board);
         self.precalculate_two_step_masks();
         self.precalculate_sentinel_plies(board);
+        self.precalculate_dist_to_exit(board);
         self.precalculate_free_movement_layout();
     }
 
@@ -249,6 +260,7 @@ impl Utils {
             diagonal_neighbor_mask : [0; 100],
             two_step_mask : [0; 100],
             sentinel_plies : [[0; 100]; 2],
+            dist_to_exit : [[0; 100]; 2],
             free_movement_layout : [[0; 100]; FREE_MOVEMENT_LAYOUT_MAX_BUDGETS],
         };
 
@@ -297,6 +309,11 @@ impl Utils {
     #[inline]
     pub fn get_free_movement_layout(&self, budget: usize, index: usize) -> u128 {
         self.free_movement_layout[budget][index]
+    }
+
+    #[inline]
+    pub fn get_distance_to_exit(&self, player: usize, index: usize) -> u16 {
+        self.dist_to_exit[player][index]
     }
 
 
