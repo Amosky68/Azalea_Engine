@@ -1,8 +1,8 @@
 use crate::gamestate::{GameState, Pieces};
 use crate::moves::{Move, MoveGenerator};
-use crate::eval::Evaluator;
+use crate::eval::{Evaluator, EvalWeights};
 use crate::zobrist::{Zobrist, Bounds};
-use crate::BitboardsUtils::Utils;
+use crate::bitboardsutils::Utils;
 use crate::board::Board;
 use std::cell::{Cell, RefCell};
 
@@ -11,7 +11,7 @@ use std::cell::{Cell, RefCell};
 const FUEL_MARGIN : u64 = 100_000_000;
 const QSEARCH_MAX_DEPTH: i32 = 4;
 
-const LMR_MIN_DEPTH : i32  = 3;  // jamais de réduction au-dessus de l'horizon rapproché
+const LMR_MIN_DEPTH : i32  = 2;  // jamais de réduction au-dessus de l'horizon rapproché
 const LMR_FIRST_MOVE: usize = 4; // jamais sur les 4 premiers coups (les mieux ordonnés)
 
 
@@ -27,15 +27,13 @@ pub struct SearchStats {
 
 
 
-
-
 pub struct Search {
     fuel_left: Box<dyn Fn() -> u64>,
     nodes: std::cell::Cell<u32>,
     stopped: std::cell::Cell<bool>,
     zobrist: RefCell<Zobrist>,
     root_ply: Cell<i32>,
-
+    weight: EvalWeights, // poids d'évaluation pour la recherche
     // statistiques
     tt_hits: std::cell::Cell<u64>,      
     tt_probes: std::cell::Cell<u64>,
@@ -51,7 +49,12 @@ impl Search {
             tt_hits: std::cell::Cell::new(0), 
             tt_probes: std::cell::Cell::new(0),
             zobrist: RefCell::new(Zobrist::new()),
-            root_ply: Cell::new(0),}
+            root_ply: Cell::new(0),
+            weight: EvalWeights::get_fined_tuned(),
+
+            // Inclut les données JSON directement dans le binaire .wasm à la compilation
+            // synergy_maps: SynergyTables::load_from_str(include_str!("synergy_maps.json")).expect("Impossible de parser synergy_maps.json embarqué"),
+        }
     }
 
     #[inline]
@@ -63,7 +66,6 @@ impl Search {
 
     /// Choisit un coup. `seed` = la graine de l'arène : le SEUL hasard autorisé.
     pub fn get_best_move(&self, state: &GameState, utils: &Utils, board: &Board) -> Move {
-
         let root_maximizing = state.current_player == 0;
         self.nodes.set(0);
         self.stopped.set(false);
@@ -91,10 +93,9 @@ impl Search {
     }
 
 
-
     pub fn alpha_beta(&self, state: &GameState, utils : &Utils, board : &Board, depth: i32, mut alpha: i32, mut beta: i32, maximizing_player: bool, zobrist: &mut Zobrist) -> (i32, Move) {
         if state.is_game_over() || self.stopped.get() {
-            return (Evaluator::evaluate(state, utils), Move::pass_mv());
+            return (Evaluator::evaluate(state, utils,  &self.weight), Move::pass_mv());
         }
         if depth <= 0 { // Quiescence search
             return (self.quiescence(state, utils, board, alpha, beta, maximizing_player, QSEARCH_MAX_DEPTH),
@@ -128,7 +129,7 @@ impl Search {
         self.nodes.set(n);
         if n % 64 == 0 && self.fuel_left() < FUEL_MARGIN {
             self.stopped.set(true);
-            return (Evaluator::evaluate(state, utils), Move::pass_mv());
+            return (Evaluator::evaluate(state, utils,  &self.weight), Move::pass_mv());
         }
 
         let mut best_move = Move::pass_mv();
@@ -136,7 +137,7 @@ impl Search {
 
         let mut moves = Vec::with_capacity(248); //  coups max par position (estimation haute)
         MoveGenerator::generate_all_moves(state, utils, board, &mut moves);
-        Search::order_moves(&mut moves, _tt_move, state.current_player as i16);
+        self.order_moves(&mut moves, _tt_move, state.current_player as i16);
 
 
         if maximizing_player {
@@ -208,7 +209,7 @@ impl Search {
 
 
     pub fn quiescence(&self, state: &GameState, utils: &Utils, board: &Board, mut alpha: i32, mut beta: i32, maximizing_player: bool, qdepth: i32) -> i32 {
-        let stand_pat = Evaluator::evaluate(state, utils);
+        let stand_pat = Evaluator::evaluate(state, utils,  &self.weight);
 
         if state.is_game_over() || self.stopped.get() { return stand_pat; }
 
@@ -262,9 +263,10 @@ impl Search {
 
 
 
-
-    pub fn order_moves(moves: &mut Vec<Move>, tt_move : Move, player: i16) {
-        moves.sort_by_key(|mv| std::cmp::Reverse(Evaluator::move_ordering_evaluation(mv, tt_move, player))); 
+    pub fn order_moves(&self, moves: &mut Vec<Move>, tt_move : Move, player: i16) {
+        moves.sort_by_key(|mv| std::cmp::Reverse(
+            Evaluator::move_ordering_evaluation(mv, tt_move, player)
+        )); 
     }
 
 
@@ -275,7 +277,7 @@ impl Search {
     #[inline]
     fn lmr_reduction(depth: i32, move_idx: usize) -> i32 {
         let _ = depth;
-        if move_idx >= 16 { 2 } else { 1 }
+        if move_idx >= 8 { 2 } else { 1 }
     }
 
 

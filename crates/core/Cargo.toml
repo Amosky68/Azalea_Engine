@@ -4,4 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "tuner"
+path = "src/bin/tuner.rs"

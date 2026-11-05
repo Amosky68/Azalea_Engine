@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use azalea_core::board::Board;
 use azalea_core::search::Search;
-use azalea_core::BitboardsUtils::Utils;
+use azalea_core::bitboardsutils::Utils;
 use traversal_bot::{bot, fuel_left, Turn};
 
 pub mod convert;

@@ -6,7 +6,7 @@ use azalea_core::board::Board;
 use azalea_core::gamestate::GameState;
 use azalea_core::moves::MoveGenerator;
 use azalea_core::zobrist::Zobrist;
-use azalea_core::BitboardsUtils::Utils;
+use azalea_core::bitboardsutils::Utils;
 
 struct Rng(u64); // xorshift64, pas de crate rand
 impl Rng {
@@ -35,14 +35,14 @@ fn random_heights(rng: &mut Rng) -> [i16; 100] {
 
 #[test]
 fn undo_roundtrip_sur_parties_autojouees() {
-    let mut zob = Zobrist::new(); // Zobrist peut nécessiter d'être mut pour new_search() si utilisé
+    let zob = Zobrist::new(); // Zobrist peut nécessiter d'être mut pour new_search() si utilisé
     let mut rng = Rng(0x9E3779B97F4A7C15);
     let mut checked = 0u64;
 
     for game in 0..50 {
         let board = Board { board: random_heights(&mut rng) };
         let utils = Utils::new(board); // Si utils precalculate_all_masks demande &mut
-        let mut gs = GameState::new();
+        let gs = GameState::new();
         let mut ply = 0;
 
         // Si vous avez choisi la Méthode 1 (tampon partagé) :
@@ -59,7 +59,7 @@ fn undo_roundtrip_sur_parties_autojouees() {
 
             // itération sur les coups (utilisez .as_slice() si vous avez choisi la structure MoveList)
             for m in &moves {
-                let mut test_state = before_copy; // On part de l'état initial
+                let test_state = before_copy; // On part de l'état initial
                 
                 // Paradigme Make/Unmake sur place
                 test_state.apply_move(m);

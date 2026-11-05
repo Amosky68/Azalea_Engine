@@ -1,6 +1,6 @@
 use crate::gamestate::GameState;
 use crate::gamestate::Pieces;
-use crate::BitboardsUtils::Utils;
+use crate::bitboardsutils::Utils;
 use crate::board::Board;
 
 

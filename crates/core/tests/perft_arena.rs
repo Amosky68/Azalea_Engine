@@ -10,7 +10,7 @@ use azalea_core::board::Board;
 use azalea_core::gamestate::{GameState};
 use azalea_core::moves::{MoveGenerator};
 use std::collections::BTreeMap;
-use azalea_core::BitboardsUtils::Utils;
+use azalea_core::bitboardsutils::Utils;
 
 
 
