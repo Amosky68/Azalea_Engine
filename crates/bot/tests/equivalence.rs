@@ -1,8 +1,8 @@
 use azalea_bot::convert::{key_of_azalea_move, key_of_server_move, to_gamestate};
-use azalea_core::moves::MoveGenerator;
+use azalea_core::moves::{Move, MoveGenerator};
 use std::collections::BTreeSet;
 use traversal_bot::core::{apply_move, legal_moves, new_game};
-use azalea_core::BitboardsUtils::Utils;
+use azalea_core::bitboardsutils::Utils;
 use azalea_core::board::Board;
 
 
@@ -53,7 +53,10 @@ fn equivalence_movegen_sur_parties_autojouees() {
 
             let expected: BTreeSet<_> = moves.iter()
                 .map(|m| key_of_server_move(&s, m)).collect();
-            let got: BTreeSet<_> = MoveGenerator::generate_all_moves(&gs, &utils, &board)
+            let mut move_buf = [Move::pass_mv(); 256];
+            let mut move_count = 0usize;
+            MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut move_buf, &mut move_count);
+            let got: BTreeSet<_> = move_buf[..move_count]
                 .iter().map(key_of_azalea_move).collect();
 
             assert_eq!(got, expected,

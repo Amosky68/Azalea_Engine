@@ -39,6 +39,7 @@ pub struct Search {
     zobrist: Zobrist,
     root_ply: i32,
     weight: EvalWeights, // poids d'évaluation pour la recherche
+    pub max_depth: usize, // profondeur max de l'ID (tests/bench ; 29 = comportement arène)
 
     move_buffer: [[Move; 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
     move_buffer_index : [usize; ITERATIVE_DEEPENING_MAX_DEPTH],
@@ -65,6 +66,7 @@ impl Search {
             zobrist: Zobrist::new(),
             root_ply: 0,
             weight: EvalWeights::get_fined_tuned(),
+            max_depth: ITERATIVE_DEEPENING_MAX_DEPTH - 1,
 
             move_buffer: [[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
             move_buffer_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
@@ -99,7 +101,7 @@ impl Search {
 
         // Iterative deepening
         let mut best_move = Move::pass_mv();
-        for depth in 1..=(ITERATIVE_DEEPENING_MAX_DEPTH-1) {
+        for depth in 1..=self.max_depth.min(ITERATIVE_DEEPENING_MAX_DEPTH - 1) {
             if self.stopped { break; }
 
             // zobrist.clear();
@@ -370,7 +372,7 @@ impl Search {
 
         let mut best_move = Move::pass_mv();
         let mut completed_depth = 0;
-        for depth in 1..=(ITERATIVE_DEEPENING_MAX_DEPTH-1) {
+        for depth in 1..=self.max_depth.min(ITERATIVE_DEEPENING_MAX_DEPTH - 1) {
             if self.stopped { break; }
             let (_, mv) = self.alpha_beta(state, utils, board, depth as i32, i32::MIN, i32::MAX, root_maximizing);
             if self.stopped { break; } // itération incomplète

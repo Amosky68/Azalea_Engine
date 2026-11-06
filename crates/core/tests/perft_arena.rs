@@ -8,7 +8,7 @@
 
 use azalea_core::board::Board;
 use azalea_core::gamestate::{GameState};
-use azalea_core::moves::{MoveGenerator};
+use azalea_core::moves::{Move, MoveGenerator};
 use std::collections::BTreeMap;
 use azalea_core::bitboardsutils::Utils;
 
@@ -51,13 +51,14 @@ fn perft(gs: &mut GameState, utils : &Utils, board : &Board ,depth: u32) -> u64 
     }
     let mut total = 0u64;
 
-    let mut moves = Vec::with_capacity(248);
-    MoveGenerator::generate_all_moves(gs, utils, board, &mut moves);
+    let mut moves = [Move::pass_mv(); 256];
+    let mut move_count = 0usize;
+    MoveGenerator::generate_all_moves(gs, utils, board, &mut moves, &mut move_count);
 
-    for m in  moves{
-        gs.apply_move(&m);
-        total += perft(gs, utils, board, depth - 1);
-        gs.undo_move(&m);
+    for m in &moves[..move_count] {
+        let mut child = gs.apply_move(m);
+        total += perft(&mut child, utils, board, depth - 1);
+
     }
     total
 }
@@ -91,19 +92,21 @@ fn profondeurs_1_2_et_divide() {
 
 
 
-        let mut actual = Vec::with_capacity(248);
-        MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut actual);
+        let mut actual_buf = [Move::pass_mv(); 256];
+        let mut actual_count = 0usize;
+        MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut actual_buf, &mut actual_count);
+        let actual = &actual_buf[..actual_count];
 
         assert_eq!(actual.len(), expected.len(),
             "{id}: {} coups racine générés, {} attendus", actual.len(), expected.len());
 
-        for m in &actual {
+        for m in actual {
             let k = (m.from, m.to, m.exit);
             let exp = expected.get(&k)
                 .unwrap_or_else(|| panic!("{id}: coup généré absent de la banque : {k:?}"));
-            gs.apply_move(m);
-            let got = perft(&mut gs, &utils, &board, 1);
-            gs.undo_move(m);
+            let mut child = gs.apply_move(m);
+            let got = perft(&mut child, &utils, &board, 1);
+
 
             assert_eq!(got, *exp, "{id}: le coup {k:?} mène à {got} réponses, la banque en attend {exp}");
         }

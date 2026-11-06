@@ -12,8 +12,8 @@ use std::collections::BTreeSet;
 use azalea_bot::convert::{key_of_azalea_move, key_of_server_move, MoveKey};
 use azalea_core::board::Board;
 use azalea_core::gamestate::GameState;
-use azalea_core::moves::MoveGenerator;
-use azalea_core::BitboardsUtils::Utils;
+use azalea_core::moves::{Move, MoveGenerator};
+use azalea_core::bitboardsutils::Utils;
 use traversal_bot::core::{apply_move, legal_moves, new_game, State};
 
 const WALK_DEPTH: u32 = 3;
@@ -111,7 +111,10 @@ fn walk(gs: &GameState, sdk: &State, board: &Board, utils: &Utils,
     if over_az { return; } // perft : feuille
 
     // 1. coups azalea
-    let az_moves = MoveGenerator::generate_all_moves(gs, utils, board);
+    let mut az_buf = [Move::pass_mv(); 256];
+    let mut az_count = 0usize;
+    MoveGenerator::generate_all_moves(gs, utils, board, &mut az_buf, &mut az_count);
+    let az_moves = &az_buf[..az_count];
     let az: BTreeSet<MoveKey> = az_moves.iter().map(key_of_azalea_move).collect();
 
     // 2. coups serveur

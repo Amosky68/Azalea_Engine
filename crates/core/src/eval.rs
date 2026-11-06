@@ -90,7 +90,7 @@ impl EvalWeights {
             score_multiplier: 571,
             closest_piece_multiplier: -2,
             distance_multiplier: 11,
-            sentinel_distance_multiplier: 51,
+            sentinel_distance_multiplier: 150,
             sentinel_goal_bonus: 60,
             adjacent_allys_multiplier: -8,
             sentinel_alone_bonus: -5,
@@ -534,7 +534,7 @@ impl Evaluator {
         let opponent_score = Evaluator::evaluate_from_player_side(state, utils, 1, weights);
 
         let mut race_bonus = 0;
-        if state.exited_piece_count == 0 {          
+        if state.exited_piece_count == 0 {
             let a = utils.get_best_sentinel_plies(state, 0);
             let b = utils.get_best_sentinel_plies(state, 1);
 
