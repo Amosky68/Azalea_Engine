@@ -308,6 +308,7 @@ impl Utils {
 
     #[inline]
     pub fn get_free_movement_layout(&self, budget: usize, index: usize) -> u128 {
+        if index > 99 {return 0;}
         self.free_movement_layout[budget][index]
     }
 

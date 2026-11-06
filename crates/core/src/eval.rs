@@ -169,15 +169,23 @@ impl Evaluator {
     /// 
     ///  - points style RISK pour la hauteur (p1 > p2) alors p1 gagne un bonus 
     ///  -> on fait ça pour chaque pièce qui peut en attaquer une autre 
+    ///     --->  on précalcul une height score map (précalculé dans Utils) 
+    /// 
     /// 
     /// - Principe de zone d'influences : 
     ///   -> se sont les zones parmis lesquelles les combats vont avoir lieu. 
-    ///   -> calcul : ? (idéalement avec des bitmaps)
+    ///   -> calcul : ? (idéalement avec des bits maps)
     /// 
     /// - les collones d'influences : 
     ///    -> chaque pièce a une influence sur les collones autour d'elles (1-2-4-2-1) par exemple (multiplié par une constante par pièce)
-    ///    -> si l'ennemie se rapproche du milieu/bors du plateau cette influence deviens plus grande (0-0-1-2-4-6-7-9-10-10) / 10
+    ///    -> si l'ennemie se rapproche du milieu/bors du plateau cette influence deviens plus grande (0-1-2-4-5-7-8-9-10-10) / 10
     ///
+    ///     ---> Ce que j'ai remarqué : 
+    ///         - la quantité d'influence sur une collone est assez représentative du joueur gagnant le combat (Il faudrait adapter cela selon la height map)
+    ///         - Lorsque l'enemie a beaucoup d'influence sur une colone, c'est souvent à cet endroit que la sentinelle enemie va passer l'arrivée.
+    ///         - il est préférable de regarder loins dans les zones d'influence
+    /// 
+    /// 
 
 
 
@@ -244,6 +252,72 @@ impl Evaluator {
         return (Pieces::None, -1);
     }
     
+
+    /// Calculates the influence of each corridor on the game state.
+    pub fn get_corridor_influence_score(state: &GameState, utils : &Utils, weights: &EvalWeights) -> ([i32; 10], [i32; 10]) {
+        let (p0_explorer, p0_vanguard, p0_sentinel) = state.get_player_pieces_map(0);
+        let p0_map = p0_explorer | p0_vanguard | p0_sentinel;
+        let (p1_explorer, p1_vanguard, p1_sentinel) = state.get_player_pieces_map(1);
+        let p1_map = p1_explorer | p1_vanguard | p1_sentinel;
+
+        
+        let mut p0_influence = [0;10];
+        let mut p1_influence = [0;10];
+
+        let influence_val = [1, 2, 1];
+        let vertical_influence_val = [0, 1, 2, 4, 5, 7, 8, 9, 10, 10];
+        
+        let piece_val = |piece: Pieces| -> i32 {
+            match piece {
+                Pieces::Explorer => 10,
+                Pieces::Vanguard => 20,
+                Pieces::Sentinel => 40,
+                _ => 0,
+            }
+        };
+
+
+        for col in 0..10 {
+            let col_mask = utils.get_col_mask(col);
+            let mut p0_pieces_in_col = p0_map & col_mask;
+            let mut p1_pieces_in_col = p1_map & col_mask;
+
+            // influence joueur 0
+            while p0_pieces_in_col != 0 {
+                let sq = p0_pieces_in_col.trailing_zeros() as i16;
+                let y_mult = vertical_influence_val[(sq / 10) as usize];
+                p0_pieces_in_col &= p0_pieces_in_col - 1;
+
+                let piece_value = piece_val(state.get_piece_at(sq)) * y_mult;
+                if col != 0 {
+                    p0_influence[col as usize - 1] += influence_val[0] * piece_value;
+                }
+                p0_influence[col as usize] += influence_val[1] * piece_value;
+                if col != 9 {
+                    p0_influence[col as usize + 1] += influence_val[2] * piece_value;
+                }
+            }
+
+            // influence joueur 1
+            while p1_pieces_in_col != 0 {
+                let sq = p1_pieces_in_col.trailing_zeros() as i16;
+                let y_mult = vertical_influence_val[((99 - sq) / 10) as usize]; // le joueur 1 est en face
+                p1_pieces_in_col &= p1_pieces_in_col - 1;
+
+                let piece_value = piece_val(state.get_piece_at(sq)) * y_mult;
+                if col != 0 {
+                    p1_influence[col as usize - 1] -= influence_val[0] * piece_value;
+                }
+                p1_influence[col as usize] -= influence_val[1] * piece_value;
+                if col != 9 {
+                    p1_influence[col as usize + 1] -= influence_val[2] * piece_value;
+                }
+            }
+        }
+
+
+        return (p0_influence, p1_influence);
+    }
 
 
 
@@ -474,11 +548,15 @@ impl Evaluator {
 
     
 
-    pub fn move_ordering_evaluation(mv: &Move, tt_move: Move, player: i16) -> i32 {
+    pub fn move_ordering_evaluation(mv: &Move, tt_move: &Move, killer_1 : &Move, killer_2 : &Move, player: i16) -> i32 {
         let mut score : i32 = 0;
 
         if mv.from == tt_move.from && mv.to == tt_move.to {
             score += 10000; // Priorité au coup du transposition table
+        }
+
+        if (mv.from == killer_1.from && mv.to == killer_1.to) || (mv.from == killer_2.from && mv.to == killer_2.to) {
+            score += 5000; // Priorité aux coups killer
         }
 
         if mv.exit {

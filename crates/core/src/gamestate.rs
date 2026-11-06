@@ -1,4 +1,5 @@
 use crate::moves::Move;
+use crate::bitboardsutils::Utils;
 
 
 
@@ -167,12 +168,49 @@ impl GameState {
 
 
 
+    
+    pub fn get_influce_zone(&self, utils : &Utils) -> u128 {
+        let (ally_explorer, ally_vanguard, ally_sentinel) = self.get_ally_pieces_masks();
+        let (enemy_explorer, enemy_vanguard, enemy_sentinel) = self.get_enemy_pieces_masks();
+
+        let p0_s1 = ally_sentinel.trailing_zeros() as usize;
+        let p0_s2 = (ally_sentinel & (ally_sentinel - 1)).trailing_zeros() as usize;
+        let p0_v1 = ally_vanguard.trailing_zeros() as usize;
+        let p0_v2 = (ally_vanguard & (ally_vanguard - 1)).trailing_zeros() as usize;
+        let p0_e1 = ally_explorer.trailing_zeros() as usize;
+        let p0_e2 = (ally_explorer & (ally_explorer - 1)).trailing_zeros() as usize;
+
+        let p0_influence = utils.get_free_movement_layout(3, p0_s1) | utils.get_free_movement_layout(3, p0_s2) |
+                           utils.get_free_movement_layout(4, p0_v1) | utils.get_free_movement_layout(4, p0_v2) |
+                           utils.get_free_movement_layout(5, p0_e1) | utils.get_free_movement_layout(5, p0_e2);
+
+        let p1_s1 = enemy_sentinel.trailing_zeros() as usize;
+        let p1_s2 = (enemy_sentinel & (enemy_sentinel - 1)).trailing_zeros() as usize;
+        let p1_v1 = enemy_vanguard.trailing_zeros() as usize;
+        let p1_v2 = (enemy_vanguard & (enemy_vanguard - 1)).trailing_zeros() as usize;
+        let p1_e1 = enemy_explorer.trailing_zeros() as usize;
+        let p1_e2 = (enemy_explorer & (enemy_explorer - 1)).trailing_zeros() as usize;
+
+        let p1_influence = utils.get_free_movement_layout(3, p1_s1) | utils.get_free_movement_layout(3, p1_s2) |
+                           utils.get_free_movement_layout(4, p1_v1) | utils.get_free_movement_layout(4, p1_v2) |
+                           utils.get_free_movement_layout(5, p1_e1) | utils.get_free_movement_layout(5, p1_e2);
+
+        
+        let influence_zone = p0_influence & p1_influence; // zone d'influence commune aux deux joueurs (zone de conflit)
+        
+        // on étend la zone entre le haut et le bas
+        (influence_zone & Utils::TOP_SHIFT_MASK << 10) | (influence_zone & Utils::BOTTOM_SHIFT_MASK >> 10) 
+    }
+
+
+
 
 
     pub fn is_game_over(&self) -> bool {
         self.exited_piece_count >= 2 || self.ply_count >= 200 || self.score_p1 >= 3 || self.score_p2 >= 3 
     }
     
+
     pub fn get_winner(&self) -> Option<i16> {
         // 2 pièces sont sorties 
         if self.exited_piece_count >= 2 {

@@ -210,8 +210,8 @@ impl MoveGenerator {
     }
 
      
-    pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board, moves: &mut Vec<Move>) {
-        moves.clear();
+    pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board, moves: &mut [Move; 256], move_count: &mut usize) {
+        *move_count = 0 as usize;
 
         let player_maps = if gs.current_player == 0 { [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1] } else { [gs.explorer_p2, gs.vanguard_p2, gs.sentinel_p2] };
         let pieces = [Pieces::Explorer, Pieces::Vanguard, Pieces::Sentinel];
@@ -228,7 +228,8 @@ impl MoveGenerator {
                 let (mut free_moves, mut attack_moves, can_exit) = MoveGenerator::get_piece_moves(gs, index, piece, utils, board);
 
                 if can_exit {
-                    moves.push(Move {from: index, to: -1, piece: piece, captured_piece: Pieces::None, captured: false, exit: true});
+                    moves[*move_count] = Move {from: index, to: -1, piece: piece, captured_piece: Pieces::None, captured: false, exit: true};
+                    *move_count += 1;
                 }
 
                 while attack_moves != 0 {
@@ -237,14 +238,17 @@ impl MoveGenerator {
 
                     let captured_piece = gs.get_piece_at(to);
 
-                    moves.push(Move {from: index, to: to, piece: piece, captured_piece: captured_piece, captured: true, exit: false} );
+                    moves[*move_count] = Move {from: index, to: to, piece: piece, captured_piece: captured_piece, captured: true, exit: false};
+                    *move_count += 1;
+
                 }
 
                 while free_moves != 0 {
                     let to = free_moves.trailing_zeros() as i16;
                     free_moves &= free_moves - 1;
 
-                    moves.push(Move {from: index, to: to, piece: piece, captured_piece: Pieces::None, captured: false, exit: false} );
+                    moves[*move_count] = Move {from: index, to: to, piece: piece, captured_piece: Pieces::None, captured: false, exit: false} ;
+                    *move_count += 1;
                 }
 
             }
@@ -252,23 +256,23 @@ impl MoveGenerator {
 
 
         
-        if moves.is_empty() { // le move "pass"
-            moves.push(Move {
+        if *move_count == 0 { // le move "pass"
+            moves[*move_count] = Move {
                 from: -1,
                 to: -1,
                 piece: Pieces::None,
                 captured_piece: Pieces::None,
                 captured: false,
                 exit: false,
-            });
+            };
+            *move_count += 1;
         }
-
     }
 
 
     /// Utile pour la recherche quiescence
-    pub fn generate_forcing_moves(gs: &GameState, utils: &Utils, board: &Board) -> Vec<Move> {
-        let mut moves = Vec::new();
+    pub fn generate_forcing_moves(gs: &GameState, utils: &Utils, board: &Board, moves: &mut [Move; 256], move_count: &mut usize) {
+        *move_count = 0;
 
         let player_maps = if gs.current_player == 0 {
             [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1]
@@ -287,16 +291,17 @@ impl MoveGenerator {
                     MoveGenerator::get_piece_moves(gs, index, pieces[i], utils, board);
 
                 if can_exit {
-                    moves.push(Move { from: index, to: -1, piece: pieces[i], captured_piece: Pieces::None, captured: false, exit: true });
+                    moves[*move_count] = Move { from: index, to: -1, piece: pieces[i], captured_piece: Pieces::None, captured: false, exit: true };
+                    *move_count += 1;
                 }
                 while attack_moves != 0 {
                     let to = attack_moves.trailing_zeros() as i16;
                     attack_moves &= attack_moves - 1;
-                    moves.push(Move { from: index, to, piece: pieces[i], captured_piece: gs.get_piece_at(to), captured: true, exit: false });
+                    moves[*move_count] = Move { from: index, to, piece: pieces[i], captured_piece: gs.get_piece_at(to), captured: true, exit: false };
+                    *move_count += 1;
                 }
             }
         }
-        moves
     }
 
 }
