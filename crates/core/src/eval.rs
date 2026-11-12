@@ -87,8 +87,8 @@ impl EvalWeights {
             adjacent_allys_multiplier: -8,
             sentinel_alone_bonus: -5,
             sentinel_no_ally_malus: 7,
-            sentinel_threat_malus: 31,
-            sentinel_escort_bonus: 3,
+            sentinel_threat_malus: 55,
+            sentinel_escort_bonus: 15,
             endgame_ply_malus: 385,
             endgame_piece_multiplier: 200,
 
