@@ -4,6 +4,12 @@
 # test de validite sdk
 /traversal-rust-sdk
 
+# fichié inutilisé pour le moment 
+/unUsed
+
+# dataset 
+/Plays_dataset
+
 # note perso
 commands.txt
 

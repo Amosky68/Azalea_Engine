@@ -1,6 +1,6 @@
 use crate::gamestate::GameState;
 use crate::gamestate::Pieces;
-use crate::bitboardsutils::Utils;
+use crate::BitboardsUtils::Utils;
 use crate::board::Board;
 
 
@@ -12,7 +12,6 @@ pub struct Move {
     pub to: i16,   // indice de la case d'arrivée
     pub piece: Pieces, // pièce qui est déplacée
 
-    //pub piece: Piece, // pièce qui est déplacée
 
     pub captured_piece: Pieces,
     pub captured: bool,
@@ -441,4 +440,3 @@ impl MoveGenerator {
  *   - La mémoire du bot persiste d'un coup à l'autre pendant la partie.
  *   - Un plantage fait perdre la partie. Le hasard ne vient QUE de la graine.
  * ---------------------------------------------------------------------------*/
-

@@ -3,10 +3,6 @@ name = "azalea_core"
 version = "0.1.0"
 edition = "2024"
 
-[dev-dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

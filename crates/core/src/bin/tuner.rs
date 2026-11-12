@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use azalea_core::board::Board;
-use azalea_core::bitboardsutils::Utils;
+use azalea_core::BitboardsUtils::Utils;
 use azalea_core::gamestate::GameState;
 use azalea_core::eval::{EvalWeights, Evaluator};
 
@@ -168,7 +168,7 @@ pub fn run_texel_tuning(dataset: &[GameData]) {
         for game_data in dataset {
             for (state, result) in &game_data.positions {
                 // 1. Calcul de l'évaluation de base
-                let eval = Evaluator::evaluate(state, &game_data.utils, &weights) as f64;
+                let eval = Evaluator::evaluate(state, &game_data.utils,  &weights) as f64;
                 let sigmoid = 1.0 / (1.0 + 10_f64.powf(-k * eval / 400.0));
                 
                 // 2. Erreur (MSE)
@@ -184,7 +184,7 @@ pub fn run_texel_tuning(dataset: &[GameData]) {
                     let step = if i >= 20 { 200 } else { 10 };
                     
                     *weights.get_param_mut(i) += step; 
-                    let eval_plus = Evaluator::evaluate(state, &game_data.utils, &weights) as f64;
+                    let eval_plus = Evaluator::evaluate(state, &game_data.utils,  &weights) as f64;
                     *weights.get_param_mut(i) -= step; // Retour à la normale
 
                     // On divise par le step pour obtenir le vrai gradient unitaire

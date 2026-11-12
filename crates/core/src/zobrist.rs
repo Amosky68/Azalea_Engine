@@ -30,7 +30,6 @@ pub struct Zobrist {
 impl Zobrist {
 
 
-
     pub fn new() -> Zobrist {
         let mut s = 0x9E3779B97F4A7C15u64;
         let mut next = move || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
@@ -55,12 +54,6 @@ impl Zobrist {
 
 
     pub fn new_search(&mut self) { self.age = self.age.wrapping_add(1); }
-
-
-    pub fn clear(&mut self) {
-        for e in self.table.iter_mut() { *e = None; }
-        self.age = 0;
-    }
 
 
     /// Clé de position : PIEÈCES + camp au trait + scores + sorties.
@@ -90,8 +83,7 @@ impl Zobrist {
         h
     }
 
-    pub fn probe(&self, state: &GameState) -> Option<ZobristEntry> {
-        let key = self.get_hash(state);
+    pub fn probe(&self, key: u64) -> Option<ZobristEntry> {
         match &self.table[(key as usize) & (TABLE_SIZE - 1)] {
             Some(e) if e.key == key => Some(*e),   // ← re-vérification de la clé
             _ => None,

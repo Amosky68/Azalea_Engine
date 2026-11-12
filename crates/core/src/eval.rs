@@ -1,12 +1,11 @@
 use crate::gamestate::{GameState, Pieces};
-use crate::bitboardsutils::Utils;
+use crate::BitboardsUtils::Utils;
 use crate::board::Board;
 use crate::moves::Move;
 
 
 // meilleur valeur pour le moment : 180
 const RACE_WIN: i32 = 180; // Bonus pour le joueur qui a la sentinel la plus avancée
-
 
 
 const MAT_RACE : [i32; 3] = [150, 250, 700];
@@ -25,14 +24,9 @@ const SENTINEL_NO_ALLY_MALUS: i32 = 0; // Malus si une sentinel n'a pas d'allié
 const SENTINEL_THREAT_MALUS: i32 = 250;
 
 const SENTINEL_ESCORT_BONUS: i32 = 80;  // par allié pouvant renforcer en 1 coup
-// const SENTINEL_ESCORT_CAP: i32 = 160;   // on compte au max 2 escorts
 
 const ENDGAME_PLY_MALUS: i32 = 150; // Malus par demi-coup pour le joueur qui a la sentinel la plus avancée
 const ENDGAME_PIECE_MULTIPLIER: i32 = 300; // Bonus pour le joueur qui a la sentinel la plus avancée
-
-
-
-
 
 
 pub struct EvalWeights {
@@ -47,7 +41,6 @@ pub struct EvalWeights {
     pub sentinel_no_ally_malus: i32,
     pub sentinel_threat_malus: i32,
     pub sentinel_escort_bonus: i32,
-    // pub sentinel_escort_cap: i32,
     pub endgame_ply_malus: i32,
     pub endgame_piece_multiplier: i32,
 
@@ -75,7 +68,6 @@ impl EvalWeights {
             sentinel_no_ally_malus: SENTINEL_NO_ALLY_MALUS,
             sentinel_threat_malus: SENTINEL_THREAT_MALUS,
             sentinel_escort_bonus: SENTINEL_ESCORT_BONUS,
-            // sentinel_escort_cap: SENTINEL_ESCORT_CAP,
             endgame_ply_malus: ENDGAME_PLY_MALUS,
             endgame_piece_multiplier: ENDGAME_PIECE_MULTIPLIER,
 
@@ -97,7 +89,6 @@ impl EvalWeights {
             sentinel_no_ally_malus: 7,
             sentinel_threat_malus: 28,
             sentinel_escort_bonus: 3,
-            // sentinel_escort_cap: 18,
             endgame_ply_malus: 385,
             endgame_piece_multiplier: 200,
 
@@ -134,9 +125,6 @@ impl EvalWeights {
         }
     }
 }
-
-
-
 
 
 pub struct Evaluator; 
@@ -186,7 +174,6 @@ impl Evaluator {
     ///         - il est préférable de regarder loins dans les zones d'influence
     /// 
     /// 
-
 
 
     /// Calcule la distance minimale d'un sentinel à la sortie pour un joueur donné.
@@ -253,73 +240,6 @@ impl Evaluator {
     }
     
 
-    /// Calculates the influence of each corridor on the game state.
-    pub fn get_corridor_influence_score(state: &GameState, utils : &Utils, weights: &EvalWeights) -> ([i32; 10], [i32; 10]) {
-        let (p0_explorer, p0_vanguard, p0_sentinel) = state.get_player_pieces_map(0);
-        let p0_map = p0_explorer | p0_vanguard | p0_sentinel;
-        let (p1_explorer, p1_vanguard, p1_sentinel) = state.get_player_pieces_map(1);
-        let p1_map = p1_explorer | p1_vanguard | p1_sentinel;
-
-        
-        let mut p0_influence = [0;10];
-        let mut p1_influence = [0;10];
-
-        let influence_val = [1, 2, 1];
-        let vertical_influence_val = [0, 1, 2, 4, 5, 7, 8, 9, 10, 10];
-        
-        let piece_val = |piece: Pieces| -> i32 {
-            match piece {
-                Pieces::Explorer => 10,
-                Pieces::Vanguard => 20,
-                Pieces::Sentinel => 40,
-                _ => 0,
-            }
-        };
-
-
-        for col in 0..10 {
-            let col_mask = utils.get_col_mask(col);
-            let mut p0_pieces_in_col = p0_map & col_mask;
-            let mut p1_pieces_in_col = p1_map & col_mask;
-
-            // influence joueur 0
-            while p0_pieces_in_col != 0 {
-                let sq = p0_pieces_in_col.trailing_zeros() as i16;
-                let y_mult = vertical_influence_val[(sq / 10) as usize];
-                p0_pieces_in_col &= p0_pieces_in_col - 1;
-
-                let piece_value = piece_val(state.get_piece_at(sq)) * y_mult;
-                if col != 0 {
-                    p0_influence[col as usize - 1] += influence_val[0] * piece_value;
-                }
-                p0_influence[col as usize] += influence_val[1] * piece_value;
-                if col != 9 {
-                    p0_influence[col as usize + 1] += influence_val[2] * piece_value;
-                }
-            }
-
-            // influence joueur 1
-            while p1_pieces_in_col != 0 {
-                let sq = p1_pieces_in_col.trailing_zeros() as i16;
-                let y_mult = vertical_influence_val[((99 - sq) / 10) as usize]; // le joueur 1 est en face
-                p1_pieces_in_col &= p1_pieces_in_col - 1;
-
-                let piece_value = piece_val(state.get_piece_at(sq)) * y_mult;
-                if col != 0 {
-                    p1_influence[col as usize - 1] -= influence_val[0] * piece_value;
-                }
-                p1_influence[col as usize] -= influence_val[1] * piece_value;
-                if col != 9 {
-                    p1_influence[col as usize + 1] -= influence_val[2] * piece_value;
-                }
-            }
-        }
-
-
-        return (p0_influence, p1_influence);
-    }
-
-
 
     pub fn evaluate_from_player_side(state: &GameState, utils : &Utils, player: i32, weights: &EvalWeights) -> i32 {
         let (ally_explorer, ally_vanguard, ally_sentinel) = state.get_player_pieces_map(player);
@@ -335,7 +255,6 @@ impl Evaluator {
         score += my_score * weights.score_multiplier;
 
 
-        // score += ((ally_explorer.count_ones() + ally_vanguard.count_ones() * 2 + ally_sentinel.count_ones() * 3) as i32) * 10;
         let race_alive = state.exited_piece_count == 0 && (state.sentinel_p1 | state.sentinel_p2) != 0;
         let values = if race_alive { &weights.mat_race } else { &weights.mat_score };
         score += ally_explorer.count_ones() as i32 * values[0] + ally_vanguard.count_ones() as i32 * values[1] + ally_sentinel.count_ones() as i32 * values[2];
@@ -409,48 +328,29 @@ impl Evaluator {
             let s_neighbors = utils.get_neighbor_mask(leader_sq as i16);
 
             // R1 — Menace sur la sentinelle leader (phase de course uniquement)
-            if state.exited_piece_count == 0 {
-                let support = s_neighbors & ally_map; // Allié adjacent à la sentinelle leader
-                let support_count = (s_neighbors & ally_map).count_ones() as i32;
+            // (support == 0 et support_count == 0 sont la même condition)
+            if state.exited_piece_count == 0 && (s_neighbors & ally_map) == 0 {
+                let mut hunter_reach = 0_u128;
 
-                if support == 0 {
-                    let mut hunter_reach = 0_u128;
+                // Portée des sentinelles ennemies (budget 3)
+                let mut es = enemy_sentinel;
+                while es != 0 {
+                    let e = es.trailing_zeros() as usize;
+                    es &= es - 1;
+                    hunter_reach |= utils.get_free_movement_layout(3, e);
+                }
 
-                    // Portée des sentinelles ennemies (budget 3)
-                    let mut es = enemy_sentinel;
-                    while es != 0 {
-                        let e = es.trailing_zeros() as usize;
-                        es &= es - 1;
-                        hunter_reach |= utils.get_free_movement_layout(3, e);
-                    }
+                // Portée des avant-gardes ennemies (budget 4)
+                let mut ev = enemy_vanguard;
+                while ev != 0 {
+                    let e = ev.trailing_zeros() as usize;
+                    ev &= ev - 1;
+                    hunter_reach |= utils.get_free_movement_layout(4, e);
+                }
 
-                    // Portée des avant-gardes ennemies (budget 4)
-                    let mut ev = enemy_vanguard;
-                    while ev != 0 {
-                        let e = ev.trailing_zeros() as usize;
-                        ev &= ev - 1;
-                        hunter_reach |= utils.get_free_movement_layout(4, e);
-                    }
-
-                    // Si un chasseur ennemi peut atteindre une case adjacente sans soutien allié
-                    if hunter_reach & s_neighbors != 0 {
-                        if support_count == 0 {
-                            // R1 (inchangé) : n'importe quel S/V seul prend le runner (3 = 3)
-                            score -= weights.sentinel_threat_malus;
-                        } else {
-                            // C2 (nouveau) : paire chasseur + explorer (attaque 3+1 = 4) bat la défense 3+1
-                            let mut explorer_reach = 0_u128;
-                            let mut ee = enemy_explorer;
-                            while ee != 0 {
-                                let e = ee.trailing_zeros() as usize;
-                                ee &= ee - 1;
-                                explorer_reach |= utils.get_free_movement_layout(5, e);
-                            }
-                            if explorer_reach & s_neighbors != 0 {
-                                score -= weights.sentinel_threat_malus;
-                            }
-                        }
-                    }
+                // Si un chasseur ennemi peut atteindre une case adjacente sans soutien allié
+                if hunter_reach & s_neighbors != 0 {
+                    score -= weights.sentinel_threat_malus;
                 }
             }
 
@@ -511,8 +411,6 @@ impl Evaluator {
     }
 
 
-
-
     pub fn evaluate(state: &GameState, utils : &Utils, weights: &EvalWeights) -> i32 {
         // Implémentez votre fonction d'évaluation ici
         // Valeur d'évaluation fictive
@@ -527,7 +425,6 @@ impl Evaluator {
             }
             return 0; // Match nul
         }
-
 
 
         let player_score = Evaluator::evaluate_from_player_side(state, utils,  0, weights);
@@ -574,7 +471,6 @@ impl Evaluator {
         
         let forward = if player == 0 { y2 > y1 } else { y2 < y1 };
         if forward { score += 100; }
-
 
 
         score += mv.piece.get_attack_force() as i32; // Priorité aux coups avec une force plus élevée

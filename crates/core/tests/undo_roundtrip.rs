@@ -6,7 +6,9 @@ use azalea_core::board::Board;
 use azalea_core::gamestate::GameState;
 use azalea_core::moves::{Move, MoveGenerator};
 use azalea_core::zobrist::Zobrist;
-use azalea_core::bitboardsutils::Utils;
+use azalea_core::BitboardsUtils::Utils;
+
+const MAX_MOVES: usize = 256;
 
 struct Rng(u64); // xorshift64, pas de crate rand
 impl Rng {
@@ -35,49 +37,39 @@ fn random_heights(rng: &mut Rng) -> [i16; 100] {
 
 #[test]
 fn undo_roundtrip_sur_parties_autojouees() {
-    let zob = Zobrist::new(); // Zobrist peut nécessiter d'être mut pour new_search() si utilisé
+    let zob = Zobrist::new();
     let mut rng = Rng(0x9E3779B97F4A7C15);
     let mut checked = 0u64;
 
     for game in 0..50 {
         let board = Board { board: random_heights(&mut rng) };
-        let utils = Utils::new(board); // Si utils precalculate_all_masks demande &mut
+        let utils = Utils::new(board);
         let mut gs = GameState::new();
         let mut ply = 0;
 
-        // Si vous avez choisi la Méthode 1 (tampon partagé) :
-        // let mut moves = Vec::with_capacity(128); 
-
         while !gs.is_game_over() && ply < 200 {
-            // Ligne à ajuster selon votre choix d'optimisation pour générer les coups :
-            let mut move_buf = [Move::pass_mv(); 256];
-            let mut move_count = 0usize;
-            MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut move_buf, &mut move_count);
-            let moves = &move_buf[..move_count];
-            // Si Méthode 1 : MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut moves);
+            let mut buffer = [Move::pass_mv(); MAX_MOVES];
+            let mut count = 0usize;
+            MoveGenerator::generate_all_moves(&gs, &utils, &board, &mut buffer, &mut count);
+            let moves = &buffer[..count];
 
-            let before_copy = gs; // GameState implémente Copy, on sauvegarde l'état initial
-            let hash_before = zob.get_hash(&before_copy);
+            let before = gs; // GameState est Copy : on garde l'état de référence
+            let hash_before = zob.get_hash(&before);
 
-            // itération sur les coups (utilisez .as_slice() si vous avez choisi la structure MoveList)
             for m in moves {
-                let test_state = before_copy; // On part de l'état initial
-                
-                // Paradigme Make/Unmake sur place
-                let after = test_state.apply_move(m);
-                let test_state = after.undo_move(m);
-                
-                assert_eq!(test_state, before_copy,
-                    "game {game} ply {ply} : undo != état initial pour {m:?}\navant : {before_copy:?}\naprès retour : {test_state:?}");
-                assert_eq!(zob.get_hash(&test_state), hash_before,
+                // apply_move retourne le nouvel état ; undo_move le défait.
+                let after = before.apply_move(m);
+                let back = after.undo_move(m);
+
+                assert_eq!(back, before,
+                    "game {game} ply {ply} : undo != état initial pour {m:?}\navant : {before:?}\naprès retour : {back:?}");
+                assert_eq!(zob.get_hash(&back), hash_before,
                     "game {game} ply {ply} : hash non restauré pour {m:?}");
                 checked += 1;
             }
 
             // Choisir un coup aléatoire pour la vraie partie
-            let chosen_move = moves[rng.below(moves.len() as u64) as usize];
-            
-            // Appliquer le coup au GameState réel de la boucle
+            let chosen_move = moves[rng.below(count as u64) as usize];
             gs = gs.apply_move(&chosen_move);
             ply += 1;
         }

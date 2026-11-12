@@ -4,5 +4,5 @@ pub mod moves;
 pub mod search;
 pub mod eval;
 pub mod zobrist;
-pub mod bitboardsutils;
+pub mod BitboardsUtils;
 

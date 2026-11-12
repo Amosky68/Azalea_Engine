@@ -2,11 +2,8 @@ use crate::gamestate::{GameState, Pieces};
 use crate::moves::{Move, MoveGenerator};
 use crate::eval::{Evaluator, EvalWeights};
 use crate::zobrist::{Zobrist, Bounds};
-use crate::bitboardsutils::Utils;
+use crate::BitboardsUtils::Utils;
 use crate::board::Board;
-use core::num;
-use std::cell::{Cell, RefCell};
-
 
 
 const FUEL_MARGIN : u64 = 100_000_000;
@@ -19,8 +16,6 @@ const NMP_MIN_DEPTH : i32  = 3;  // jamais de Null Move Pruning au-dessus de l'h
 const ITERATIVE_DEEPENING_MAX_DEPTH : usize = 30; // profondeur max de recherche itérative
 
 
-
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SearchStats {
     pub nodes: u64,       // nœuds visités ce coup
@@ -28,8 +23,6 @@ pub struct SearchStats {
     pub tt_hits: u64,     // probes TT qui ont matché la clé
     pub tt_probes: u64,   // probes TT totales
 }
-
-
 
 
 pub struct Search {
@@ -55,7 +48,6 @@ pub struct Search {
 }
 
 
-
 impl Search {
     pub fn new(fuel_left: impl Fn() -> u64 + 'static) -> Search {
         Search { fuel_left: Box::new(fuel_left), 
@@ -75,10 +67,6 @@ impl Search {
             forcing_moves_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
 
             killer_moves: [[Move::pass_mv(); 2]; 30],
-
-
-            // Inclut les données JSON directement dans le binaire .wasm à la compilation
-            // synergy_maps: SynergyTables::load_from_str(include_str!("synergy_maps.json")).expect("Impossible de parser synergy_maps.json embarqué"),
         }
     }
 
@@ -86,7 +74,6 @@ impl Search {
     fn fuel_left(&self) -> u64 {
         (self.fuel_left)()
     }
-
 
 
     /// Choisit un coup. `seed` = la graine de l'arène : le SEUL hasard autorisé.
@@ -104,7 +91,6 @@ impl Search {
         for depth in 1..=self.max_depth.min(ITERATIVE_DEEPENING_MAX_DEPTH - 1) {
             if self.stopped { break; }
 
-            // zobrist.clear();
             let (_, mv) = self.alpha_beta(state, utils, board,  depth as i32, i32::MIN, i32::MAX, root_maximizing);
 
             if self.stopped { break; } // itération incomplète
@@ -115,7 +101,6 @@ impl Search {
         best_move
 
     }
-
 
 
     pub fn alpha_beta(&mut self, state: &GameState, utils : &Utils, board : &Board, depth: i32, mut alpha: i32, mut beta: i32, maximizing_player: bool) -> (i32, Move) {
@@ -134,7 +119,7 @@ impl Search {
 
         let key = self.zobrist.get_hash(state);
         let mut _tt_move = Move::pass_mv();
-        if let Some(entry) = self.zobrist.probe(state) {
+        if let Some(entry) = self.zobrist.probe(key) {
             self.tt_hits = self.tt_hits + 1; // statistiques : probe TT qui match la clé
             _tt_move = entry.best_move; // On mémorise le coup pour le Move Ordering
             if entry.depth >= depth && state.ply_count != self.root_ply {
@@ -179,15 +164,12 @@ impl Search {
         }
 
 
-
         let mut best_move = Move::pass_mv();
         let mut best_score = if maximizing_player { i32::MIN } else { i32::MAX };
 
 
         MoveGenerator::generate_all_moves(state, utils, board, &mut self.move_buffer[depth as usize], &mut self.move_buffer_index[depth as usize]);
         self.order_moves( _tt_move, depth as usize, state.current_player as i16);
-
-        let influence_zone = state.get_influce_zone(utils);
 
 
         if maximizing_player {
@@ -198,7 +180,7 @@ impl Search {
                 // Late Move Reductions (LMR)
                 // pas de réductions sur les coups de captures, de sortie ou de transposition table, ni sur les 4 premiers coups (les mieux ordonnés)
                 let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to) && !(mv.piece == Pieces::Sentinel && state.exited_piece_count == 0); 
-                let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MIN && quiet { Search::lmr_reduction(depth, idx, influence_zone, &mv) } else { 0 };
+                let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MIN && quiet { Search::lmr_reduction(idx) } else { 0 };
 
                 // recherche réduite, si elle bat alpha -> on re-cherche à profondeur complète 
                 let eval = if reduce > 0 {
@@ -230,7 +212,7 @@ impl Search {
                 // Late Move Reductions (LMR)
                 // pas de réductions sur les coups de captures, de sortie ou de transposition table, ni sur les 4 premiers coups (les mieux ordonnés)
                 let quiet = !mv.captured && !mv.exit && !(mv.from == _tt_move.from && mv.to == _tt_move.to) && !(mv.piece == Pieces::Sentinel && state.exited_piece_count == 0);
-                let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MAX && quiet { Search::lmr_reduction(depth, idx, influence_zone, &mv) } else { 0 };
+                let reduce = if depth >= LMR_MIN_DEPTH && idx >= LMR_FIRST_MOVE && best_score != i32::MAX && quiet { Search::lmr_reduction(idx) } else { 0 };
 
                 let eval = if reduce > 0 {
                     let (r, _) = self.alpha_beta(&new_state, utils, board, depth - 1 - reduce, alpha, beta, true);
@@ -306,7 +288,6 @@ impl Search {
         ));
 
 
-
         let mut best = stand_pat;
         if maximizing_player {
             for idx in 0..num_moves {
@@ -340,22 +321,11 @@ impl Search {
 
     
 
-    // Late move reductions : 
+    // Late move reductions
     #[inline]
-    fn lmr_reduction(_depth: i32, move_idx: usize, influence_zone : u128, mv : &Move) -> i32 {
-        
-        let mut reduction = 0;
-
-        if move_idx >= 8 { 
-            reduction += 2; 
-        } else { 
-            reduction += 1; 
-        }
-
-        reduction
+    fn lmr_reduction(move_idx: usize) -> i32 {
+        if move_idx >= 8 { 2 } else { 1 }
     }
-
-
 
 
     // statistiques : 

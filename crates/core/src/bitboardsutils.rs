@@ -5,13 +5,11 @@ use crate::gamestate::GameState;
 const FREE_MOVEMENT_LAYOUT_MAX_BUDGETS: usize = 30; // budgets pour Explorer, Vanguard, Sentinel
 
 
-
 pub struct Utils {
     pub bfs_weights : [[u128; 4]; 3], // direction, step size (0,1,2) 
     // dir : up, right, down, left
 
     pub row_mask : [u128; 10],
-    pub col_mask : [u128; 10],
     pub triple_col_mask : [u128; 10], // masque des colonnes triples (pour les sentinelles)
 
 
@@ -86,10 +84,9 @@ impl Utils {
     }
 
 
-    fn precalculate_row_col_masks(&mut self) {
+    fn precalculate_row_masks(&mut self) {
         for i in 0..10 {
             self.row_mask[i] = 0b1111111111 << (i*10);
-            self.col_mask[i] = 0b00000000010000000001000000000100000000010000000001000000000100000000010000000001 << i;
         }
     }
 
@@ -139,7 +136,6 @@ impl Utils {
             self.two_step_mask[index as usize] = mask;
         }
     }
-
 
 
     fn bfs_from_square(&mut self, start_index: usize, mut budget : i32) -> u128 {
@@ -237,10 +233,9 @@ impl Utils {
     }
 
 
-
     pub fn precalculate_all_masks(&mut self, board : &Board) {
         self.precalculate_bfs_weights(board);
-        self.precalculate_row_col_masks();
+        self.precalculate_row_masks();
         self.precalculate_triple_col_masks();
         self.precalculate_neighbor_masks(board);
         self.precalculate_diagonal_neighbor_masks(board);
@@ -254,7 +249,6 @@ impl Utils {
         let mut utils = Utils {
             bfs_weights : [[0; 4]; 3],
             row_mask : [0; 10],
-            col_mask : [0; 10],
             triple_col_mask : [0; 10],
             neighbor_mask : [0; 100],
             diagonal_neighbor_mask : [0; 100],
@@ -268,7 +262,6 @@ impl Utils {
 
         utils
     }
-
 
 
     #[inline]
@@ -294,11 +287,6 @@ impl Utils {
     #[inline]
     pub fn get_row_mask(&self, row: i16) -> u128 {
         self.row_mask[row as usize]
-    }
-
-    #[inline]
-    pub fn get_col_mask(&self, col: i16) -> u128 {
-        self.col_mask[col as usize]
     }
 
     #[inline]
@@ -333,6 +321,5 @@ impl Utils {
         best
     }
 }
-
 
 
