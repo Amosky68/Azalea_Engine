@@ -89,7 +89,7 @@ impl EvalWeights {
             sentinel_no_ally_malus: 30,
             sentinel_threat_malus: 55,
             sentinel_escort_bonus: 15,
-            endgame_ply_malus: 385,
+            endgame_ply_malus: 460,
             endgame_piece_multiplier: 200,
 
             mat_race: [166, 290, 515],
