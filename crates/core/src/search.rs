@@ -10,7 +10,7 @@ const FUEL_MARGIN : u64 = 100_000_000;
 const QSEARCH_MAX_DEPTH: i32 = 4;
 
 const LMR_MIN_DEPTH : i32  = 2;  // jamais de réduction au-dessus de l'horizon rapproché
-const LMR_FIRST_MOVE: usize = 6; // jamais sur les 4 premiers coups (les mieux ordonnés)
+const LMR_FIRST_MOVE: usize = 4; // jamais sur les 4 premiers coups (les mieux ordonnés)
 const NMP_MIN_DEPTH : i32  = 3;  // jamais de Null Move Pruning au-dessus de l'horizon rapproché
 
 const ITERATIVE_DEEPENING_MAX_DEPTH : usize = 30; // profondeur max de recherche itérative

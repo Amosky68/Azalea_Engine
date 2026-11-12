@@ -80,11 +80,11 @@ impl EvalWeights {
         EvalWeights {
             race_win: -19,
             score_multiplier: 571,
-            closest_piece_multiplier: -2,
+            closest_piece_multiplier: 10,
             distance_multiplier: 11,
             sentinel_distance_multiplier: 165,
             sentinel_goal_bonus: 60,
-            adjacent_allys_multiplier: -8,
+            adjacent_allys_multiplier: 4,
             sentinel_alone_bonus: 60,
             sentinel_no_ally_malus: 30,
             sentinel_threat_malus: 55,

@@ -1,0 +1,20 @@
+=== 1. Compilation Wasm ===
+warning: module `BitboardsUtils` should have a snake case name
+ --> crates\core\src\lib.rs:7:9
+  |
+7 | pub mod BitboardsUtils;
+  |         ^^^^^^^^^^^^^^ help: convert the identifier to snake case: `bitboards_utils`
+  |
+  = note: `#[warn(non_snake_case)]` on by default
+
+warning: `azalea_core` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.10s
+=== 2. Lancement du duel Docker (600 parties) ===
+docker : [partie 5 — A]
+Au caract�re C:\Users\amoro\Documents\Amaury\Programmation\Rust\Traversal\run_arena.ps1:13 : 1
++ docker run --rm -v "${PWD}:/w" traversal-arena duel /w/target/wasm32- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([partie 5 — A]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+EXIT=1
