@@ -82,17 +82,17 @@ impl EvalWeights {
             score_multiplier: 571,
             closest_piece_multiplier: -2,
             distance_multiplier: 11,
-            sentinel_distance_multiplier: 150,
+            sentinel_distance_multiplier: 165,
             sentinel_goal_bonus: 60,
             adjacent_allys_multiplier: -8,
             sentinel_alone_bonus: -5,
             sentinel_no_ally_malus: 7,
-            sentinel_threat_malus: 28,
+            sentinel_threat_malus: 31,
             sentinel_escort_bonus: 3,
             endgame_ply_malus: 385,
             endgame_piece_multiplier: 200,
 
-            mat_race: [166, 290, 468],
+            mat_race: [166, 290, 515],
             mat_score: [214, 395, 325],
         }
     }
