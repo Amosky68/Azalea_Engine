@@ -445,6 +445,32 @@ impl Evaluator {
 
     
 
+    /// Même priorité que `move_ordering_evaluation`, mais compactée sur un octet.
+    ///
+    /// Les composantes du score sont 10000 / 5000 / 1000 / 500 / 200 / 100 / [0..3]
+    /// et chaque niveau est strictement supérieur à la somme de tous les niveaux
+    /// inférieurs : l'ordre des codes est donc EXACTEMENT l'ordre des scores.
+    /// 6 drapeaux + 2 bits de force = 8 bits, soit 256 codes triables au
+    /// comptage (aucune comparaison, aucun appel de fonction dans le tri).
+    #[inline]
+    pub fn move_ordering_code(mv: &Move, tt_move: &Move, killer_1: &Move, killer_2: &Move, player: i16) -> u8 {
+        let mut code: u8 = 0;
+        if mv.from == tt_move.from && mv.to == tt_move.to { code |= 1 << 7; }
+        if (mv.from == killer_1.from && mv.to == killer_1.to) || (mv.from == killer_2.from && mv.to == killer_2.to) {
+            code |= 1 << 6;
+        }
+        if mv.exit { code |= 1 << 5; }
+        if mv.captured { code |= 1 << 4; }
+        if mv.piece == Pieces::Sentinel { code |= 1 << 3; }
+
+        let y1 = Board::row_of(mv.from);
+        let y2 = if mv.to < 0 { y1 } else { Board::row_of(mv.to) }; // sortie : to = -1
+        let forward = if player == 0 { y2 > y1 } else { y2 < y1 };
+        if forward { code |= 1 << 2; }
+
+        code | (mv.piece.get_attack_force() & 3) as u8
+    }
+
     pub fn move_ordering_evaluation(mv: &Move, tt_move: &Move, killer_1 : &Move, killer_2 : &Move, player: i16) -> i32 {
         let mut score : i32 = 0;
 

@@ -19,7 +19,7 @@ pub struct Move {
 }
 
 impl Move {
-    pub fn pass_mv() -> Move {
+    pub const fn pass_mv() -> Move {
         Move {
             from: -1,
             to: -1,
@@ -280,11 +280,29 @@ impl MoveGenerator {
         };
         let pieces = [Pieces::Explorer, Pieces::Vanguard, Pieces::Sentinel];
 
+        // Élagage exact : `free_movement_layout[budget][case]` est l'ensemble des
+        // cases atteignables SANS aucun obstacle, donc un sur-ensemble de ce que
+        // le BFS peut réellement toucher. Si ni une case ennemie ni une case de
+        // sortie n'y figure, la pièce ne peut produire aucune attaque ni sortie :
+        // lancer le BFS ne servirait à rien. Pour un explorer on ajoute ses cases
+        // spéciales (diagonales), qui ne font pas partie du parcours orthogonal.
+        let (_, enemy_mask) = gs.get_ally_ennemy_masks();
+        let exit_mask = if gs.current_player == 0 { Utils::P1_EXIT_MASK } else { Utils::P2_EXIT_MASK };
+
         for i in 0..3 {
             let mut map = player_maps[i];
             while map != 0 {
                 let index = map.trailing_zeros() as i16;
                 map &= map - 1;
+
+                let budget = pieces[i].get_movement_budget() as usize;
+                let mut reachable = utils.get_free_movement_layout(budget, index as usize);
+                if pieces[i] == Pieces::Explorer {
+                    reachable |= utils.get_diagonal_neighbor_mask(index);
+                }
+                if reachable & enemy_mask == 0 && reachable & exit_mask == 0 {
+                    continue;
+                }
 
                 let (_, mut attack_moves, can_exit) =
                     MoveGenerator::get_piece_moves(gs, index, pieces[i], utils, board);

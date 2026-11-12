@@ -34,11 +34,18 @@ pub struct Search {
     weight: EvalWeights, // poids d'évaluation pour la recherche
     pub max_depth: usize, // profondeur max de l'ID (tests/bench ; 29 = comportement arène)
 
-    move_buffer: [[Move; 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
+    // Les quatre gros tampons sont sur le TAS : `Search` reste ainsi minuscule
+    // (≈ 1 Ko) et ne peut plus faire déborder la pile wasm (1 Mo) quand la
+    // structure est construite ou déplacée par valeur.
+    move_buffer: Box<[[Move; 256]]>,
     move_buffer_index : [usize; ITERATIVE_DEEPENING_MAX_DEPTH],
 
-    forcing_moves: [[Move; 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
+    // ordre des coups (indices triés par `Evaluator::move_ordering_code`)
+    order_buffer: Box<[[i32; 256]]>,
+
+    forcing_moves: Box<[[Move; 256]]>,
     forcing_moves_index : [usize; ITERATIVE_DEEPENING_MAX_DEPTH],
+    forcing_order: Box<[[i32; 256]]>,
 
     killer_moves: [[Move; 2]; 30],
 
@@ -60,11 +67,14 @@ impl Search {
             weight: EvalWeights::get_fined_tuned(),
             max_depth: ITERATIVE_DEEPENING_MAX_DEPTH - 1,
 
-            move_buffer: [[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
+            move_buffer: vec![[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
             move_buffer_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
 
-            forcing_moves: [[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH],
+            order_buffer: vec![[0i32; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
+
+            forcing_moves: vec![[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
             forcing_moves_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
+            forcing_order: vec![[0i32; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
 
             killer_moves: [[Move::pass_mv(); 2]; 30],
         }
@@ -174,7 +184,7 @@ impl Search {
 
         if maximizing_player {
             for idx in 0..self.move_buffer_index[depth as usize] {
-                let mv = self.move_buffer[depth as usize][idx];
+                let mv = self.move_buffer[depth as usize][self.order_buffer[depth as usize][idx] as usize];
                 let new_state = state.apply_move(&mv);
 
                 // Late Move Reductions (LMR)
@@ -206,7 +216,7 @@ impl Search {
             }
         } else {
             for idx in 0..self.move_buffer_index[depth as usize] {
-                let mv = self.move_buffer[depth as usize][idx];
+                let mv = self.move_buffer[depth as usize][self.order_buffer[depth as usize][idx] as usize];
                 let new_state = state.apply_move(&mv);
 
                 // Late Move Reductions (LMR)
@@ -283,15 +293,18 @@ impl Search {
         if num_moves == 0 { return stand_pat; } // position calme : l'éval statique est fiable
 
         // sorties et grosses captures en tête (pas de TT en quiescence v1)
-        self.forcing_moves[qdepth as usize][..num_moves].sort_unstable_by_key(|mv| std::cmp::Reverse(
-            Evaluator::move_ordering_evaluation(mv, &Move::pass_mv(), &self.killer_moves[q_idx][0], &self.killer_moves[q_idx][1], state.current_player as i16)
-        ));
+        let pass = Move::pass_mv();
+        let mut codes = [0u8; 256];
+        for i in 0..num_moves {
+            codes[i] = Evaluator::move_ordering_code(&self.forcing_moves[q_idx][i], &pass, &self.killer_moves[q_idx][0], &self.killer_moves[q_idx][1], state.current_player as i16);
+        }
+        Search::counting_sort(&codes[..num_moves], &mut self.forcing_order[q_idx][..num_moves]);
 
 
         let mut best = stand_pat;
         if maximizing_player {
             for idx in 0..num_moves {
-                let mv = self.forcing_moves[q_idx][idx];
+                let mv = self.forcing_moves[q_idx][self.forcing_order[q_idx][idx] as usize];
                 let ns = state.apply_move(&mv);
                 let score = self.quiescence(&ns, utils, board, alpha, beta, false, qdepth - 1);
                 if score > best { best = score; }
@@ -300,7 +313,7 @@ impl Search {
             }
         } else {
             for idx in 0..num_moves {
-                let mv = self.forcing_moves[q_idx][idx];
+                let mv = self.forcing_moves[q_idx][self.forcing_order[q_idx][idx] as usize];
                 let ns = state.apply_move(&mv);
                 let score = self.quiescence(&ns, utils, board, alpha, beta, true, qdepth - 1);
                 if score < best { best = score; }
@@ -312,11 +325,37 @@ impl Search {
     }
 
 
+    /// Tri par comptage des indices de coups selon leur code de priorité.
+    ///
+    /// `out` reçoit les indices de `codes` du code le plus fort au plus faible
+    /// et, pour un même code, dans l'ordre de génération (tri STABLE). Aucune
+    /// comparaison n'est faite : 256 compteurs suffisent.
+    #[inline]
+    fn counting_sort(codes: &[u8], out: &mut [i32]) {
+        let n = codes.len();
+        let mut counts = [0u16; 256];
+        for &c in codes { counts[c as usize] += 1; }
+        let mut pos = [0u16; 256];
+        let mut acc = 0u16;
+        for c in (0..256).rev() { pos[c] = acc; acc += counts[c]; }
+        for i in 0..n {
+            let c = codes[i] as usize;
+            out[pos[c] as usize] = i as i32;
+            pos[c] += 1;
+        }
+    }
+
     pub fn order_moves(&mut self, tt_move: Move, depth : usize, player : i16) {
-        let moves = &mut self.move_buffer[depth as usize][..self.move_buffer_index[depth as usize]];
-        moves.sort_unstable_by_key(|mv| std::cmp::Reverse(
-            Evaluator::move_ordering_evaluation(mv, &tt_move, &self.killer_moves[depth][0], &self.killer_moves[depth][1], player)
-        )); 
+        // une clé compacte par coup (voir `Evaluator::move_ordering_code`)…
+        let count = self.move_buffer_index[depth];
+        let killer_1 = self.killer_moves[depth][0];
+        let killer_2 = self.killer_moves[depth][1];
+        let mut codes = [0u8; 256];
+        for i in 0..count {
+            codes[i] = Evaluator::move_ordering_code(&self.move_buffer[depth][i], &tt_move, &killer_1, &killer_2, player);
+        }
+        // … puis tri au comptage (aucune comparaison).
+        Search::counting_sort(&codes[..count], &mut self.order_buffer[depth][..count]);
     }
 
     
