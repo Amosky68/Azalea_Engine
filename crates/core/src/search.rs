@@ -40,11 +40,16 @@ pub struct Search {
     move_buffer: Box<[[Move; 256]]>,
     move_buffer_index : [usize; ITERATIVE_DEEPENING_MAX_DEPTH],
 
-    // ordre des coups (indices triés par `Evaluator::move_ordering_code`)
+    // partie STATIQUE du code d'ordonnancement de chaque coup généré (bits 0..=5),
+    // remplie par `generate_*_moves_coded` : évite de la recalculer au tri.
+    move_codes: Box<[[u8; 256]]>,
+
+    // ordre des coups (indices triés par code d'ordonnancement)
     order_buffer: Box<[[i32; 256]]>,
 
     forcing_moves: Box<[[Move; 256]]>,
     forcing_moves_index : [usize; ITERATIVE_DEEPENING_MAX_DEPTH],
+    forcing_codes: Box<[[u8; 256]]>,
     forcing_order: Box<[[i32; 256]]>,
 
     killer_moves: [[Move; 2]; 30],
@@ -70,10 +75,13 @@ impl Search {
             move_buffer: vec![[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
             move_buffer_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
 
+            move_codes: vec![[0u8; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
+
             order_buffer: vec![[0i32; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
 
             forcing_moves: vec![[Move::pass_mv(); 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
             forcing_moves_index : [0; ITERATIVE_DEEPENING_MAX_DEPTH],
+            forcing_codes: vec![[0u8; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
             forcing_order: vec![[0i32; 256]; ITERATIVE_DEEPENING_MAX_DEPTH].into_boxed_slice(),
 
             killer_moves: [[Move::pass_mv(); 2]; 30],
@@ -178,8 +186,11 @@ impl Search {
         let mut best_score = if maximizing_player { i32::MIN } else { i32::MAX };
 
 
-        MoveGenerator::generate_all_moves(state, utils, board, &mut self.move_buffer[depth as usize], &mut self.move_buffer_index[depth as usize]);
-        self.order_moves( _tt_move, depth as usize, state.current_player as i16);
+        MoveGenerator::generate_all_moves_coded(state, utils, board,
+            &mut self.move_buffer[depth as usize],
+            &mut self.move_buffer_index[depth as usize],
+            &mut self.move_codes[depth as usize]);
+        self.order_moves(_tt_move, depth as usize);
 
 
         if maximizing_player {
@@ -286,7 +297,10 @@ impl Search {
         }
 
         // Génération des coups
-        MoveGenerator::generate_forcing_moves(state, utils, board, &mut self.forcing_moves[qdepth as usize], &mut self.forcing_moves_index[qdepth as usize]);
+        MoveGenerator::generate_forcing_moves_coded(state, utils, board,
+            &mut self.forcing_moves[qdepth as usize],
+            &mut self.forcing_moves_index[qdepth as usize],
+            &mut self.forcing_codes[qdepth as usize]);
 
         let q_idx = qdepth as usize;
         let num_moves = self.forcing_moves_index[q_idx];
@@ -294,9 +308,16 @@ impl Search {
 
         // sorties et grosses captures en tête (pas de TT en quiescence v1)
         let pass = Move::pass_mv();
+        let killer_1 = self.killer_moves[q_idx][0];
+        let killer_2 = self.killer_moves[q_idx][1];
         let mut codes = [0u8; 256];
         for i in 0..num_moves {
-            codes[i] = Evaluator::move_ordering_code(&self.forcing_moves[q_idx][i], &pass, &self.killer_moves[q_idx][0], &self.killer_moves[q_idx][1], state.current_player as i16);
+            let mv = &self.forcing_moves[q_idx][i];
+            let mut code = self.forcing_codes[q_idx][i];
+            if mv.from == pass.from && mv.to == pass.to { code |= 1 << 7; }
+            if (mv.from == killer_1.from && mv.to == killer_1.to)
+                || (mv.from == killer_2.from && mv.to == killer_2.to) { code |= 1 << 6; }
+            codes[i] = code;
         }
         Search::counting_sort(&codes[..num_moves], &mut self.forcing_order[q_idx][..num_moves]);
 
@@ -333,11 +354,24 @@ impl Search {
     #[inline]
     fn counting_sort(codes: &[u8], out: &mut [i32]) {
         let n = codes.len();
+        // bitset des codes présents : on ne balaie que ceux-là (≤ 20 en pratique
+        // au lieu des 256 compteurs), avec EXACTEMENT le même ordre de sortie.
+        let mut used = [0u64; 4];
+        for &c in codes { used[(c >> 6) as usize] |= 1u64 << (c & 63); }
         let mut counts = [0u16; 256];
         for &c in codes { counts[c as usize] += 1; }
         let mut pos = [0u16; 256];
         let mut acc = 0u16;
-        for c in (0..256).rev() { pos[c] = acc; acc += counts[c]; }
+        for w in (0..4).rev() {
+            let mut bits = used[w];
+            while bits != 0 {
+                let b = 63 - bits.leading_zeros() as usize;
+                bits &= !(1u64 << b);
+                let c = (w << 6) + b;
+                pos[c] = acc;
+                acc += counts[c];
+            }
+        }
         for i in 0..n {
             let c = codes[i] as usize;
             out[pos[c] as usize] = i as i32;
@@ -345,16 +379,25 @@ impl Search {
         }
     }
 
-    pub fn order_moves(&mut self, tt_move: Move, depth : usize, player : i16) {
-        // une clé compacte par coup (voir `Evaluator::move_ordering_code`)…
+    /// Ajoute les bits dépendant du nœud (TT, killers) aux codes statiques
+    /// précalculés à la génération, puis trie les indices au comptage.
+    pub fn order_moves(&mut self, tt_move: Move, depth : usize) {
         let count = self.move_buffer_index[depth];
+        if count <= 1 {
+            if count == 1 { self.order_buffer[depth][0] = 0; }
+            return;
+        }
         let killer_1 = self.killer_moves[depth][0];
         let killer_2 = self.killer_moves[depth][1];
         let mut codes = [0u8; 256];
         for i in 0..count {
-            codes[i] = Evaluator::move_ordering_code(&self.move_buffer[depth][i], &tt_move, &killer_1, &killer_2, player);
+            let mv = &self.move_buffer[depth][i];
+            let mut code = self.move_codes[depth][i];
+            if mv.from == tt_move.from && mv.to == tt_move.to { code |= 1 << 7; }
+            if (mv.from == killer_1.from && mv.to == killer_1.to)
+                || (mv.from == killer_2.from && mv.to == killer_2.to) { code |= 1 << 6; }
+            codes[i] = code;
         }
-        // … puis tri au comptage (aucune comparaison).
         Search::counting_sort(&codes[..count], &mut self.order_buffer[depth][..count]);
     }
 

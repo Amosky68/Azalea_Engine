@@ -209,7 +209,17 @@ impl MoveGenerator {
     }
 
      
+    /// Version historique (sans codes) : conservée pour les tests.
     pub fn generate_all_moves(gs: &GameState, utils : &Utils, board : &Board, moves: &mut [Move; 256], move_count: &mut usize) {
+        let mut codes = [0u8; 256];
+        MoveGenerator::generate_all_moves_coded(gs, utils, board, moves, move_count, &mut codes);
+    }
+
+    /// Comme `generate_all_moves`, mais remplit aussi `codes` avec la partie
+    /// STATIQUE du code d'ordonnancement (bits 0..=5 : sortie, capture,
+    /// sentinelle, avancée, force). Les bits 6-7 (killer, TT) dépendent du nœud
+    /// et sont ajoutés par `Search::order_moves`.
+    pub fn generate_all_moves_coded(gs: &GameState, utils : &Utils, board : &Board, moves: &mut [Move; 256], move_count: &mut usize, codes: &mut [u8; 256]) {
         *move_count = 0 as usize;
 
         let player_maps = if gs.current_player == 0 { [gs.explorer_p1, gs.vanguard_p1, gs.sentinel_p1] } else { [gs.explorer_p2, gs.vanguard_p2, gs.sentinel_p2] };
@@ -220,14 +230,19 @@ impl MoveGenerator {
 
             let mut map = player_maps[i];
             let piece = pieces[i];
+            // bits 0..=3 : force + sentinelle ; constants pour cette pièce
+            let base = (piece.get_attack_force() & 3) as u8
+                | if piece == Pieces::Sentinel { 1u8 << 3 } else { 0 };
             while map != 0 {
                 let index = map.trailing_zeros() as i16;
                 map &= map - 1;
+                let y1 = Board::row_of(index);
 
                 let (mut free_moves, mut attack_moves, can_exit) = MoveGenerator::get_piece_moves(gs, index, piece, utils, board);
 
                 if can_exit {
                     moves[*move_count] = Move {from: index, to: -1, piece: piece, captured_piece: Pieces::None, captured: false, exit: true};
+                    codes[*move_count] = base | (1 << 5); // sortie : avancée = false
                     *move_count += 1;
                 }
 
@@ -236,8 +251,11 @@ impl MoveGenerator {
                     attack_moves &= attack_moves - 1;
 
                     let captured_piece = gs.get_piece_at(to);
+                    let y2 = Board::row_of(to);
+                    let forward = if gs.current_player == 0 { y2 > y1 } else { y2 < y1 };
 
                     moves[*move_count] = Move {from: index, to: to, piece: piece, captured_piece: captured_piece, captured: true, exit: false};
+                    codes[*move_count] = base | (1 << 4) | ((forward as u8) << 2);
                     *move_count += 1;
 
                 }
@@ -246,7 +264,11 @@ impl MoveGenerator {
                     let to = free_moves.trailing_zeros() as i16;
                     free_moves &= free_moves - 1;
 
+                    let y2 = Board::row_of(to);
+                    let forward = if gs.current_player == 0 { y2 > y1 } else { y2 < y1 };
+
                     moves[*move_count] = Move {from: index, to: to, piece: piece, captured_piece: Pieces::None, captured: false, exit: false} ;
+                    codes[*move_count] = base | ((forward as u8) << 2);
                     *move_count += 1;
                 }
 
@@ -264,6 +286,7 @@ impl MoveGenerator {
                 captured: false,
                 exit: false,
             };
+            codes[0] = 0;
             *move_count += 1;
         }
     }
@@ -271,6 +294,13 @@ impl MoveGenerator {
 
     /// Utile pour la recherche quiescence
     pub fn generate_forcing_moves(gs: &GameState, utils: &Utils, board: &Board, moves: &mut [Move; 256], move_count: &mut usize) {
+        let mut codes = [0u8; 256];
+        MoveGenerator::generate_forcing_moves_coded(gs, utils, board, moves, move_count, &mut codes);
+    }
+
+    /// Comme `generate_forcing_moves`, mais remplit aussi la partie statique du
+    /// code d'ordonnancement (bits 0..=5).
+    pub fn generate_forcing_moves_coded(gs: &GameState, utils: &Utils, board: &Board, moves: &mut [Move; 256], move_count: &mut usize, codes: &mut [u8; 256]) {
         *move_count = 0;
 
         let player_maps = if gs.current_player == 0 {
@@ -291,9 +321,12 @@ impl MoveGenerator {
 
         for i in 0..3 {
             let mut map = player_maps[i];
+            let base = (pieces[i].get_attack_force() & 3) as u8
+                | if pieces[i] == Pieces::Sentinel { 1u8 << 3 } else { 0 };
             while map != 0 {
                 let index = map.trailing_zeros() as i16;
                 map &= map - 1;
+                let y1 = Board::row_of(index);
 
                 let budget = pieces[i].get_movement_budget() as usize;
                 let mut reachable = utils.get_free_movement_layout(budget, index as usize);
@@ -309,12 +342,16 @@ impl MoveGenerator {
 
                 if can_exit {
                     moves[*move_count] = Move { from: index, to: -1, piece: pieces[i], captured_piece: Pieces::None, captured: false, exit: true };
+                    codes[*move_count] = base | (1 << 5); // sortie : avancée = false
                     *move_count += 1;
                 }
                 while attack_moves != 0 {
                     let to = attack_moves.trailing_zeros() as i16;
                     attack_moves &= attack_moves - 1;
+                    let y2 = Board::row_of(to);
+                    let forward = if gs.current_player == 0 { y2 > y1 } else { y2 < y1 };
                     moves[*move_count] = Move { from: index, to, piece: pieces[i], captured_piece: gs.get_piece_at(to), captured: true, exit: false };
+                    codes[*move_count] = base | (1 << 4) | ((forward as u8) << 2);
                     *move_count += 1;
                 }
             }

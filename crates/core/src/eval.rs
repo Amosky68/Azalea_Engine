@@ -261,28 +261,48 @@ impl Evaluator {
 
 
         // Distance entre la pièce la plus avancée et l'objectif X force de la pièce
-        let (closest_piece, distance) = Evaluator::get_closest_piece_to_goal(state, utils, player);
-        if closest_piece != Pieces::None {
+        if ally_map != 0 {
+            let sq: i32 = if player == 0 {
+                127 - ally_map.leading_zeros() as i32
+            } else {
+                ally_map.trailing_zeros() as i32
+            };
+            let row = sq / 10;
+            let in_row = ally_map & utils.get_row_mask(row as i16);
+            let closest_piece = if ally_sentinel & in_row != 0 {
+                Pieces::Sentinel
+            } else if ally_vanguard & in_row != 0 {
+                Pieces::Vanguard
+            } else {
+                Pieces::Explorer
+            };
+            let distance = if player == 0 { 9 - row } else { row };
             score += (10 - distance) * closest_piece.get_attack_force() as i32 * weights.closest_piece_multiplier;
         }
 
 
         // Somme des distances entre toutes les pièces et l'objectif (indépendamment de la force de la pièce)
-        for row in 0..10 {
-            let row_mask = utils.get_row_mask(row);
-            let ally_pieces_in_row = ally_map & row_mask;
-
-            if ally_pieces_in_row != 0 {
-                let ally_piece_count = ally_pieces_in_row.count_ones() as i32;
-                let rows_to_go = if player == 0 { 9 - row as i32 } else { row as i32 };
-                score += (10 - rows_to_go) * ally_piece_count * weights.distance_multiplier; 
-            }
+        let mut dist_map = ally_map;
+        while dist_map != 0 {
+            let sq = dist_map.trailing_zeros() as i32;
+            dist_map &= dist_map - 1;
+            let rows_to_go = if player == 0 { 9 - sq / 10 } else { sq / 10 };
+            score += (10 - rows_to_go) * weights.distance_multiplier;
         }
 
 
         // distance de la sentinel la plus avancée à l'objectif
-        let sentinel_distance = Evaluator::sentinel_distance_to_exit(state, utils,player);
-        score += (10 - sentinel_distance) * weights.sentinel_distance_multiplier; 
+        let sentinel_distance = {
+            let map = if player == 0 { state.sentinel_p1 } else { state.sentinel_p2 };
+            if map == 0 {
+                10
+            } else if player == 0 {
+                9 - (127 - map.leading_zeros() as i32) / 10
+            } else {
+                map.trailing_zeros() as i32 / 10
+            }
+        };
+        score += (10 - sentinel_distance) * weights.sentinel_distance_multiplier;
 
         // Bonus si sentinel sur les 3 dernières lignes de l'objectif
         let goal_area = if player == 0 { Utils::P1_GOAL_AREA_MASK } else { Utils::P2_GOAL_AREA_MASK };
@@ -356,23 +376,24 @@ impl Evaluator {
 
             // Calcul du nombre d'escortes capables d'atteindre le voisinage de la sentinelle leader
             let mut escorts = 0;
-            let mut temp = ally_map & !(1u128 << leader_sq);
-            while temp != 0 {
-                let sq = temp.trailing_zeros() as usize;
-                temp &= temp - 1;
-                
-                let mask = 1u128 << sq;
-                let b = if ally_sentinel & mask != 0 {
-                    3
-                } else if ally_vanguard & mask != 0 {
-                    4
-                } else {
-                    5
-                };
-
-                if utils.get_free_movement_layout(b, sq) & s_neighbors != 0 {
-                    escorts += 1;
-                }
+            let leader_bit = 1u128 << leader_sq;
+            let mut m = ally_sentinel & !leader_bit;
+            while m != 0 {
+                let sq = m.trailing_zeros() as usize;
+                m &= m - 1;
+                if utils.get_free_movement_layout(3, sq) & s_neighbors != 0 { escorts += 1; }
+            }
+            let mut m = ally_vanguard;
+            while m != 0 {
+                let sq = m.trailing_zeros() as usize;
+                m &= m - 1;
+                if utils.get_free_movement_layout(4, sq) & s_neighbors != 0 { escorts += 1; }
+            }
+            let mut m = ally_explorer;
+            while m != 0 {
+                let sq = m.trailing_zeros() as usize;
+                m &= m - 1;
+                if utils.get_free_movement_layout(5, sq) & s_neighbors != 0 { escorts += 1; }
             }
             score += escorts.min(2) * weights.sentinel_escort_bonus;
         }
